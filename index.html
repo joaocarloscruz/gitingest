@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Codebase Ingest</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <h1>Local Codebase Ingest Tool</h1>
+    <p>Select the root folder of your code repository. The tool will read text files, filter based on the options below and a basic interpretation of <code>.gitignore</code>, and output the combined content.</p>
+    <p><strong>Important:</strong> Runs entirely in your browser. No data is uploaded.</p>
+    <p><strong>Limitation:</strong> <code>.gitignore</code> and pattern matching is simplified.</p>
+
+    <div class="controls">
+        <label for="folderInput" class="button">Select Code Folder</label>
+        <input type="file" id="folderInput" webkitdirectory directory style="display: none;">
+        <span id="status">No folder selected.</span>
+    </div>
+
+    <div class="filter-options">
+        <div class="pattern-filter">
+            <label for="filterMode">Filter:</label>
+            <select id="filterMode">
+                <option value="Exclude" selected>Exclude</option>
+                <option value="Include">Include</option>
+            </select>
+            <input type="text" id="filterPatterns" placeholder="e.g., *.md, build/, test*">
+        </div>
+
+        <div class="size-filter">
+            <label for="maxSizeSlider">Include files under: <span id="maxSizeValue">500 KB</span></label>
+            <input type="range" id="maxSizeSlider" min="0" max="5120" step="10" value="500"> <!-- Max 5MB -->
+        </div>
+    </div>
+
+    <div class="output-container">
+        <textarea id="output" rows="20" placeholder="Combined code output will appear here..." readonly></textarea>
+        <button id="copyButton" disabled>Copy to Clipboard</button>
+    </div>
+
+    <script src="script.js"></script>
+
+</body>
+</html>

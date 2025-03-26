@@ -1,0 +1,202 @@
+body {
+    font-family: sans-serif;
+    line-height: 1.6;
+    padding: 20px;
+    max-width: 900px;
+    margin: 0 auto;
+    background-color: #f9f5ed; /* Lighter beige background */
+    color: #333;
+}
+
+h1 {
+    text-align: center;
+    color: #2c3e50;
+}
+
+p {
+    margin-bottom: 1em;
+}
+
+code {
+    background-color: #e0e0e0;
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-family: monospace;
+}
+
+.controls {
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.button {
+    display: inline-block;
+    background-color: #3498db;
+    color: white;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    text-align: center;
+    transition: background-color 0.3s ease;
+}
+
+.button:hover {
+    background-color: #2980b9;
+}
+
+#status {
+    font-style: italic;
+    color: #555;
+}
+
+/* --- New Filter Styles --- */
+.filter-options {
+    display: flex;
+    flex-wrap: wrap; /* Allow wrapping on smaller screens */
+    gap: 25px;
+    margin-bottom: 20px;
+    padding: 15px;
+    background-color: #fff; /* White background for filter area */
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    align-items: center; /* Vertically align items */
+}
+
+.pattern-filter {
+    display: flex;
+    align-items: center;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    overflow: hidden; /* Keep children within rounded corners */
+    background-color: #fff; /* Ensure background is white */
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.pattern-filter label {
+    padding: 0 10px;
+    font-weight: bold;
+    color: #555;
+}
+
+.pattern-filter select {
+    padding: 8px 10px;
+    border: none;
+    border-right: 1px solid #ccc; /* Separator */
+    background-color: #f0f0f0; /* Light grey for select */
+    cursor: pointer;
+    height: 100%; /* Match input height */
+    outline: none;
+}
+
+.pattern-filter input[type="text"] {
+    padding: 8px 12px;
+    border: none;
+    flex-grow: 1; /* Take remaining space */
+    min-width: 150px; /* Ensure decent minimum width */
+    background-color: #eaf2f8; /* Light blueish background */
+    outline: none;
+}
+.pattern-filter input[type="text"]:focus {
+     background-color: #fff;
+}
+
+
+.size-filter {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.size-filter label {
+    white-space: nowrap; /* Prevent label text wrapping */
+}
+
+#maxSizeValue {
+    font-weight: bold;
+    min-width: 60px; /* Reserve space */
+    text-align: right;
+    color: #e74c3c; /* Reddish color for value */
+}
+
+input[type="range"] {
+    cursor: pointer;
+    width: 150px; /* Adjust width as needed */
+    height: 8px;
+    background: linear-gradient(to right, #e74c3c, #e74c3c var(--value-percent, 50%), #f0e6d2 var(--value-percent, 50%), #f0e6d2); /* Red/Beige track */
+    border-radius: 5px;
+    appearance: none; /* Override default look */
+    -webkit-appearance: none;
+    outline: none;
+    border: 1px solid #555; /* Dark border around track */
+}
+
+/* Slider Thumb */
+input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 24px; /* Taller thumb */
+    background: #fff; /* White thumb */
+    border: 2px solid #333; /* Dark border */
+    border-radius: 3px;
+    cursor: grab;
+}
+input[type="range"]::-moz-range-thumb {
+     width: 16px;
+    height: 24px;
+    background: #fff;
+    border: 2px solid #333;
+    border-radius: 3px;
+    cursor: grab;
+}
+input[type="range"]:active::-webkit-slider-thumb {
+    cursor: grabbing;
+}
+input[type="range"]:active::-moz-range-thumb {
+    cursor: grabbing;
+}
+
+/* --- End New Filter Styles --- */
+
+
+.output-container {
+    margin-top: 20px;
+}
+
+#output {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    font-family: monospace;
+    background-color: #fff;
+    min-height: 300px;
+    resize: vertical;
+}
+
+#copyButton {
+    display: block;
+    margin-top: 10px;
+    margin-left: auto;
+    margin-right: 0;
+    background-color: #2ecc71;
+    color: white;
+    padding: 8px 15px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+#copyButton:hover:not(:disabled) {
+    background-color: #27ae60;
+}
+
+#copyButton:disabled {
+    background-color: #bdc3c7;
+    cursor: not-allowed;
+}
