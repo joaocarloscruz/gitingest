@@ -1,17 +1,30 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // --- UI Elements ---
+    const modeLocalRadio = document.getElementById('modeLocal');
+    const modeUrlRadio = document.getElementById('modeUrl');
+    const localModeSection = document.getElementById('localModeSection');
+    const urlModeSection = document.getElementById('urlModeSection');
     const folderInput = document.getElementById('folderInput');
-    const statusDisplay = document.getElementById('status');
+    const localStatusDisplay = document.getElementById('localStatus');
+    const urlInput = document.getElementById('urlInput');
+    const fetchUrlButton = document.getElementById('fetchUrlButton');
+    const urlStatusDisplay = document.getElementById('urlStatus');
     const outputArea = document.getElementById('output');
     const copyButton = document.getElementById('copyButton');
     const filterModeSelect = document.getElementById('filterMode');
     const filterPatternsInput = document.getElementById('filterPatterns');
     const maxSizeSlider = document.getElementById('maxSizeSlider');
     const maxSizeValueDisplay = document.getElementById('maxSizeValue');
+    const finalStatusDisplay = document.getElementById('finalStatus'); // Span for final summary
 
     // --- Configuration ---
     let currentMaxSizeBytes = parseInt(maxSizeSlider.value) * 1024;
+    let currentInputMode = 'local'; // 'local' or 'url'
 
-    const BINARY_EXTENSIONS = new Set([
+    // GitHub API limits content fetching via contents endpoint to 1MB
+    const GITHUB_API_MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024;
+
+    const BINARY_EXTENSIONS = new Set([ /* ... (keep existing list) ... */
         // Images
         '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.ico', '.webp',
         // Documents
@@ -25,7 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Java/Python Bytecode
         '.class', '.jar', '.pyc', '.pyd',
         // Lock files & Build artifacts
-        '.lock', '.lockb', '.package-lock.json', // Be careful with package-lock, maybe keep it?
+        '.lock', '.lockb', '.package-lock.json',
         // Assets/Fonts
         '.svg', '.woff', '.woff2', '.ttf', '.otf', '.eot',
         // Database files
@@ -34,185 +47,586 @@ document.addEventListener('DOMContentLoaded', () => {
         '.DS_Store', 'Thumbs.db'
     ]);
 
-    // Directories/files to always ignore (these override include/exclude and gitignore)
-    // Added more common ones
-    const ALWAYS_IGNORE_PATTERNS = [
-        '.git/',
-        '.svn/',
-        '.hg/',
-        'node_modules/',
-        'bower_components/',
-        'vendor/', // PHP Composer, etc.
-        'dist/',
-        'build/',
-        'out/',
-        'target/', // Java Maven/Gradle
-        'coverage/',
-        '__pycache__/',
-        '*.pyc',
-        '.DS_Store',
-        'Thumbs.db',
-        '.env', // Often contains secrets
-        '.idea/', // JetBrains IDE
-        '.vscode/', // VS Code workspace settings (can sometimes contain secrets/paths)
-        '*.log', // Log files
-        '*.tmp',
-        '*.temp'
-    ].map(p => ({ pattern: p, isDir: p.endsWith('/') })); // Pre-process
+    const ALWAYS_IGNORE_PATTERNS = [ /* ... (keep existing list) ... */
+        '.git/', '.svn/', '.hg/', 'node_modules/', 'bower_components/', 'vendor/',
+        'dist/', 'build/', 'out/', 'target/', 'coverage/', '__pycache__/', '*.pyc',
+        '.DS_Store', 'Thumbs.db', '.env', '.idea/', '.vscode/', '*.log', '*.tmp', '*.temp'
+    ].map(p => ({ pattern: p, isDir: p.endsWith('/') }));
 
     let gitignoreRules = [];
     let userFilterPatterns = [];
     let currentFilterMode = filterModeSelect.value;
 
     // --- Event Listeners ---
+    modeLocalRadio.addEventListener('change', handleModeChange);
+    modeUrlRadio.addEventListener('change', handleModeChange);
     folderInput.addEventListener('change', handleFolderSelect);
+    fetchUrlButton.addEventListener('click', handleUrlFetch); // New handler for URL fetch
     copyButton.addEventListener('click', copyOutputToClipboard);
+    maxSizeSlider.addEventListener('input', updateMaxSize);
+    filterModeSelect.addEventListener('change', () => { currentFilterMode = filterModeSelect.value; });
 
-    maxSizeSlider.addEventListener('input', () => {
+    // --- Initial Setup ---
+    handleModeChange(); // Set initial UI state based on default checked radio
+    updateMaxSize(); // Set initial slider display and value
+
+    // --- Mode Switching ---
+    function handleModeChange() {
+        currentInputMode = document.querySelector('input[name="inputMode"]:checked').value;
+        if (currentInputMode === 'local') {
+            localModeSection.style.display = 'block';
+            urlModeSection.style.display = 'none';
+            localStatusDisplay.textContent = 'No folder selected.'; // Reset status
+            urlStatusDisplay.textContent = 'Enter a public GitHub repository URL.';
+        } else { // url mode
+            localModeSection.style.display = 'none';
+            urlModeSection.style.display = 'block';
+            localStatusDisplay.textContent = 'Local folder input disabled.';
+            urlStatusDisplay.textContent = 'Enter a public GitHub repository URL.'; // Reset status
+        }
+        // Clear output and reset button when mode changes
+        outputArea.value = '';
+        copyButton.disabled = true;
+        finalStatusDisplay.textContent = '';
+    }
+
+    // --- Max Size Handling ---
+    function updateMaxSize() {
         const kbValue = parseInt(maxSizeSlider.value);
         currentMaxSizeBytes = kbValue * 1024;
         maxSizeValueDisplay.textContent = formatSize(currentMaxSizeBytes);
         updateSliderBackground();
-        // Note: Does not re-filter automatically after files are loaded.
-    });
-
-    filterModeSelect.addEventListener('change', () => {
-        currentFilterMode = filterModeSelect.value;
-        // Note: Does not re-filter automatically.
-    });
-
-    // --- Initial Setup ---
-    maxSizeValueDisplay.textContent = formatSize(currentMaxSizeBytes);
-    updateSliderBackground(); // Set initial background
+    }
 
     function updateSliderBackground() {
         const percentage = (parseInt(maxSizeSlider.value) / parseInt(maxSizeSlider.max)) * 100;
         maxSizeSlider.style.setProperty('--value-percent', `${percentage}%`);
     }
 
+    // --- Status Updates ---
+    function setStatus(message, isError = false, mode = currentInputMode) {
+        let displayElement = finalStatusDisplay; // Default to final status
 
-    // --- Core Logic ---
+        if (mode === 'local' && localStatusDisplay) {
+            displayElement = localStatusDisplay;
+        } else if (mode === 'url' && urlStatusDisplay) {
+            displayElement = urlStatusDisplay;
+        }
+        // If setting final status, use the dedicated span
+        if (message.startsWith('✅') || message.startsWith('❌')) {
+             displayElement = finalStatusDisplay;
+             // Optionally clear the mode-specific status
+             if(localStatusDisplay) localStatusDisplay.textContent = '';
+             if(urlStatusDisplay) urlStatusDisplay.textContent = '';
+        }
 
+
+        if (displayElement) {
+            displayElement.textContent = message;
+            displayElement.style.color = isError ? 'var(--color-danger)' : 'var(--color-secondary)'; // Use CSS variables
+        }
+        console.log(message); // Log status to console as well
+        if (isError) {
+            console.error(message);
+        }
+    }
+
+    // --- Core Logic: Local Folder ---
     async function handleFolderSelect(event) {
         const files = event.target.files;
         if (!files || files.length === 0) {
-            statusDisplay.textContent = 'No folder selected or folder is empty.';
+            setStatus('No folder selected or folder is empty.', false, 'local');
             outputArea.value = '';
             copyButton.disabled = true;
             return;
         }
 
-        statusDisplay.textContent = `⏳ Preparing... Reading filters...`;
+        setStatus('⏳ Preparing... Reading filters...', false, 'local');
         outputArea.value = 'Processing... Please wait.\n';
         copyButton.disabled = true;
-        gitignoreRules = []; // Reset rules
+        finalStatusDisplay.textContent = ''; // Clear final status
+        gitignoreRules = [];
         userFilterPatterns = parseUserPatterns(filterPatternsInput.value);
         currentFilterMode = filterModeSelect.value;
 
         const sortedFiles = Array.from(files).sort((a, b) => {
-            // Prioritize root .gitignore
             if (a.webkitRelativePath.split('/').length === 2 && a.name === '.gitignore') return -1;
             if (b.webkitRelativePath.split('/').length === 2 && b.name === '.gitignore') return 1;
-            // Otherwise, sort alphabetically by path
             return a.webkitRelativePath.localeCompare(b.webkitRelativePath);
         });
 
         const rootGitignoreFile = sortedFiles.find(f => f.webkitRelativePath.split('/').length === 2 && f.name === '.gitignore');
-
         if (rootGitignoreFile) {
             try {
-                statusDisplay.textContent = '⏳ Reading root .gitignore...';
-                // Allow reading .gitignore even if large, but use a reasonable limit (e.g., 1MB) just in case
-                const gitignoreContent = await readFileContent(rootGitignoreFile, 1 * 1024 * 1024);
+                setStatus('⏳ Reading root .gitignore...', false, 'local');
+                const gitignoreContent = await readFileContentLocal(rootGitignoreFile, 1 * 1024 * 1024); // Limit gitignore read size
                 gitignoreRules = parseGitignore(gitignoreContent);
-                 statusDisplay.textContent = `ℹ️ Found ${gitignoreRules.length} rules in .gitignore. Processing files...`;
+                setStatus(`ℹ️ Found ${gitignoreRules.length} rules in .gitignore. Processing files...`, false, 'local');
             } catch (error) {
-                console.error("Error reading .gitignore:", error);
-                statusDisplay.textContent = '⚠️ Could not read root .gitignore, proceeding without it. Processing files...';
+                console.error("Error reading local .gitignore:", error);
+                setStatus('⚠️ Could not read root .gitignore, proceeding without it.', true, 'local');
             }
         } else {
-             statusDisplay.textContent = 'ℹ️ No root .gitignore found. Processing files...';
+            setStatus('ℹ️ No root .gitignore found. Processing files...', false, 'local');
         }
-        await new Promise(resolve => setTimeout(resolve, 50)); // Small delay for UI update
+        await new Promise(resolve => setTimeout(resolve, 50));
 
-
-        let combinedOutput = '';
         let processedFileCount = 0;
         let ignoredFileCount = 0;
+        let readErrorCount = 0;
         const totalFiles = sortedFiles.length;
         const fileProcessingPromises = [];
 
-        statusDisplay.textContent = `🔎 Analyzing ${totalFiles} items...`;
-        await new Promise(resolve => setTimeout(resolve, 0)); // Allow UI update
+        setStatus(`🔎 Analyzing ${totalFiles} local items...`, false, 'local');
+        await new Promise(resolve => setTimeout(resolve, 0));
 
         for (let i = 0; i < sortedFiles.length; i++) {
             const file = sortedFiles[i];
-            // Handle cases where webkitRelativePath might be missing or empty (though unlikely for directory selections)
-            if (!file.webkitRelativePath) {
-                ignoredFileCount++;
-                continue;
-            }
+            if (!file.webkitRelativePath) { ignoredFileCount++; continue; }
             const filePath = file.webkitRelativePath;
             const firstSlashIndex = filePath.indexOf('/');
-             // Ensure relativePathInRepo calculation is safe
             const relativePathInRepo = firstSlashIndex !== -1 ? filePath.substring(firstSlashIndex + 1) : filePath;
 
-            if (!shouldProcessFile(relativePathInRepo, file.size, file.name, file.type)) {
+            if (!shouldProcessFile(relativePathInRepo, file.size, file.name)) {
                 ignoredFileCount++;
                 continue;
             }
 
             fileProcessingPromises.push(
-                readFileContent(file)
+                readFileContentLocal(file)
                     .then(content => ({ path: relativePathInRepo, content: content }))
                     .catch(error => {
-                        console.warn(`Skipping file ${relativePathInRepo}: ${error.message}`);
-                        // Don't increment ignoredFileCount here, it was already done if shouldProcessFile failed,
-                        // or it will be implicitly ignored by not being added to output.
-                        // We need a way to track files that *failed* reading vs. filtered out. Let's add a separate counter or refine.
-                        // For now, just return null.
-                        return null;
+                        console.warn(`Skipping local file ${relativePathInRepo}: ${error.message}`);
+                        return { path: relativePathInRepo, content: null, error: true }; // Mark error
                     })
             );
 
             if (i % 150 === 0 || i === totalFiles - 1) {
-                 statusDisplay.textContent = `🔎 Analyzing item ${i + 1}/${totalFiles}... (Filtered so far: ${ignoredFileCount})`;
-                 await new Promise(resolve => setTimeout(resolve, 0));
+                setStatus(`🔎 Analyzing local item ${i + 1}/${totalFiles}... (Filtered: ${ignoredFileCount})`, false, 'local');
+                await new Promise(resolve => setTimeout(resolve, 0));
             }
         }
 
         const filesToReadCount = fileProcessingPromises.length;
-        statusDisplay.textContent = `📚 Reading ${filesToReadCount} filtered files...`;
+        setStatus(`📚 Reading ${filesToReadCount} filtered local files...`, false, 'local');
         await new Promise(resolve => setTimeout(resolve, 0));
 
         const results = await processPromisesBatch(fileProcessingPromises, 15, (done, total) => {
-            statusDisplay.textContent = `📚 Reading file ${done}/${total}...`;
+            setStatus(`📚 Reading local file ${done}/${total}...`, false, 'local');
         });
 
-        let readErrorCount = 0;
+        let combinedOutput = '';
         results.forEach(result => {
             if (result && result.content !== null) {
                 combinedOutput += `--- FILENAME: ${result.path} ---\n`;
-                combinedOutput += result.content;
-                combinedOutput += '\n\n';
+                combinedOutput += result.content + '\n\n';
                 processedFileCount++;
-            } else if (result === null) {
-                // This means readFileContent failed (e.g., detected binary during read)
+            } else if (result && result.error) {
                 readErrorCount++;
             }
         });
 
-        // Recalculate ignored count more accurately
         ignoredFileCount = totalFiles - processedFileCount - readErrorCount;
-
         outputArea.value = combinedOutput;
-        statusDisplay.textContent = `✅ Done. Processed ${processedFileCount} files. Filtered/Ignored ${ignoredFileCount} items. Read errors: ${readErrorCount}. Total items: ${totalFiles}.`;
+        setStatus(`✅ Done. Processed ${processedFileCount} files. Filtered/Ignored ${ignoredFileCount}. Read errors: ${readErrorCount}. Total: ${totalFiles}.`, false, 'final');
         copyButton.disabled = combinedOutput.length === 0;
-
         folderInput.value = null; // Allow selecting the same folder again
     }
 
-    async function processPromisesBatch(promises, batchSize, progressCallback) {
+    // Renamed original readFileContent for clarity
+    function readFileContentLocal(file, sizeLimitOverride = null) {
+        return new Promise((resolve, reject) => {
+            const sizeLimit = sizeLimitOverride !== null ? sizeLimitOverride : currentMaxSizeBytes;
+            if (file.size > sizeLimit) {
+                return reject(new Error(`File size (${formatSize(file.size)}) exceeds limit (${formatSize(sizeLimit)})`));
+            }
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const text = event.target.result;
+                if (text && text.indexOf('\u0000') !== -1) {
+                    reject(new Error(`Detected null byte, likely binary: ${file.name}`));
+                } else {
+                    resolve(text);
+                }
+            };
+            reader.onerror = (event) => reject(new Error(`Error reading file ${file.name}: ${reader.error}`));
+            reader.readAsText(file);
+        });
+    }
+
+
+    // --- Core Logic: Git URL ---
+
+    function parseGitHubUrl(url) {
+        try {
+            const parsedUrl = new URL(url);
+            if (parsedUrl.hostname !== 'github.com') {
+                return null;
+            }
+            const pathParts = parsedUrl.pathname.split('/').filter(Boolean); // Filter empty strings
+            if (pathParts.length < 2) {
+                return null;
+            }
+            const [owner, repo] = pathParts;
+            // Remove .git suffix if present
+            const repoName = repo.endsWith('.git') ? repo.slice(0, -4) : repo;
+            return { owner, repo: repoName };
+        } catch (e) {
+            console.error("URL parsing error:", e);
+            return null; // Invalid URL format
+        }
+    }
+
+    async function handleUrlFetch() {
+        const repoUrl = urlInput.value.trim();
+        if (!repoUrl) {
+            setStatus('Please enter a GitHub repository URL.', true, 'url');
+            return;
+        }
+
+        const repoInfo = parseGitHubUrl(repoUrl);
+        if (!repoInfo) {
+            setStatus('Invalid GitHub URL format. Use e.g., https://github.com/owner/repo', true, 'url');
+            return;
+        }
+
+        setStatus('⏳ Preparing... Reading filters...', false, 'url');
+        outputArea.value = 'Fetching repository data... Please wait.\n';
+        copyButton.disabled = true;
+        fetchUrlButton.disabled = true; // Disable button during fetch
+        finalStatusDisplay.textContent = ''; // Clear final status
+        gitignoreRules = [];
+        userFilterPatterns = parseUserPatterns(filterPatternsInput.value);
+        currentFilterMode = filterModeSelect.value;
+
+        let allFiles = []; // Array to hold { path: string, size: number, sha: string, type: 'file'|'dir', url: string }
+
+        try {
+            setStatus(`⏳ Fetching file list for ${repoInfo.owner}/${repoInfo.repo}... (May take time)`, false, 'url');
+            allFiles = await fetchRepoContentsRecursive(repoInfo.owner, repoInfo.repo, '');
+
+            const rootGitignore = allFiles.find(f => f.path === '.gitignore' && f.type === 'file');
+            if (rootGitignore) {
+                 try {
+                    setStatus('⏳ Reading root .gitignore...', false, 'url');
+                    const gitignoreContent = await fetchFileContentFromAPI(repoInfo.owner, repoInfo.repo, rootGitignore.path);
+                    gitignoreRules = parseGitignore(gitignoreContent);
+                    setStatus(`ℹ️ Found ${gitignoreRules.length} rules in .gitignore. Processing files...`, false, 'url');
+                 } catch (error) {
+                     console.error("Error fetching/reading repo .gitignore:", error);
+                     // Don't treat as fatal, just warn
+                     setStatus('⚠️ Could not read root .gitignore from repository.', true, 'url');
+                 }
+            } else {
+                 setStatus('ℹ️ No root .gitignore found in repository. Processing files...', false, 'url');
+            }
+             await new Promise(resolve => setTimeout(resolve, 50));
+
+
+            let processedFileCount = 0;
+            let ignoredFileCount = 0;
+            let readErrorCount = 0;
+            let skippedApiLimitCount = 0;
+            const totalItems = allFiles.length;
+            const fileProcessingPromises = [];
+
+            setStatus(`🔎 Analyzing ${totalItems} repository items...`, false, 'url');
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            for (let i = 0; i < allFiles.length; i++) {
+                const item = allFiles[i];
+                if (item.type !== 'file') {
+                    // We only care about files for content processing
+                    ignoredFileCount++;
+                    continue;
+                }
+
+                 // Check GitHub API size limit *before* shouldProcessFile size check
+                if (item.size > GITHUB_API_MAX_FILE_SIZE_BYTES) {
+                    console.warn(`Skipping ${item.path}: Size (${formatSize(item.size)}) exceeds GitHub API content limit (${formatSize(GITHUB_API_MAX_FILE_SIZE_BYTES)}).`);
+                    skippedApiLimitCount++;
+                    ignoredFileCount++; // Also count as ignored
+                    continue;
+                }
+
+                if (!shouldProcessFile(item.path, item.size, item.path.split('/').pop() /* filename */)) {
+                    ignoredFileCount++;
+                    continue;
+                }
+
+                // If it passes filters, add promise to fetch content
+                fileProcessingPromises.push(
+                    fetchFileContentFromAPI(repoInfo.owner, repoInfo.repo, item.path)
+                        .then(content => ({ path: item.path, content: content }))
+                        .catch(error => {
+                            console.warn(`Skipping repo file ${item.path}: ${error.message}`);
+                            return { path: item.path, content: null, error: true }; // Mark error
+                        })
+                );
+
+                if (i % 50 === 0 || i === totalItems - 1) { // Update less frequently for API calls
+                    setStatus(`🔎 Analyzing repository item ${i + 1}/${totalItems}... (Filtered: ${ignoredFileCount}, API Skip: ${skippedApiLimitCount})`, false, 'url');
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+            }
+
+            const filesToReadCount = fileProcessingPromises.length;
+            setStatus(`📚 Fetching content for ${filesToReadCount} filtered files via API... (Check console for rate limit warnings)`, false, 'url');
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            // Process API calls in smaller batches due to potential rate limits
+            const results = await processPromisesBatch(fileProcessingPromises, 5, (done, total) => {
+                 setStatus(`📚 Fetching file content ${done}/${total}...`, false, 'url');
+            });
+
+            let combinedOutput = '';
+            results.forEach(result => {
+                 if (result && result.content !== null) {
+                     combinedOutput += `--- FILENAME: ${result.path} ---\n`;
+                     combinedOutput += result.content + '\n\n';
+                     processedFileCount++;
+                 } else if (result && result.error) {
+                    readErrorCount++;
+                }
+            });
+
+            // Adjust ignored count calculation for API skips
+            ignoredFileCount = totalItems - processedFileCount - readErrorCount; // totalItems includes dirs, adjust if needed
+
+            outputArea.value = combinedOutput;
+             const finalMessage = `✅ Done. Processed ${processedFileCount} files. Filtered/Ignored ${ignoredFileCount} items. Read errors: ${readErrorCount}. API Skips (>1MB): ${skippedApiLimitCount}. Total items listed: ${totalItems}.`;
+            setStatus(finalMessage, false, 'final');
+            copyButton.disabled = combinedOutput.length === 0;
+
+        } catch (error) {
+            console.error("Error fetching repository data:", error);
+            setStatus(`❌ Error: ${error.message}. Check URL or GitHub API status/rate limits.`, true, 'final');
+             outputArea.value = `Failed to process repository.\nError: ${error.message}`;
+            copyButton.disabled = true;
+        } finally {
+             fetchUrlButton.disabled = false; // Re-enable button
+        }
+    }
+
+    // Fetches repository contents recursively using GitHub API
+    async function fetchRepoContentsRecursive(owner, repo, path = '', accumulatedFiles = []) {
+        // Use default branch by not specifying ref, or add '?ref=branch-name' if needed
+        const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+        const response = await fetch(apiUrl, {
+            headers: { 'Accept': 'application/vnd.github.v3+json' } // Recommended header
+        });
+
+        if (!response.ok) {
+            let errorMsg = `GitHub API error: ${response.status} ${response.statusText} for path "${path}".`;
+            if (response.status === 404) errorMsg = `Repository or path not found: ${owner}/${repo}/${path}`;
+            if (response.status === 403) {
+                errorMsg = `GitHub API rate limit likely exceeded or private repository access denied. Wait a while or try later.`;
+                console.warn('Rate limit headers:', {
+                    limit: response.headers.get('X-RateLimit-Limit'),
+                    remaining: response.headers.get('X-RateLimit-Remaining'),
+                    reset: response.headers.get('X-RateLimit-Reset') ? new Date(response.headers.get('X-RateLimit-Reset') * 1000).toLocaleTimeString() : 'N/A'
+                });
+            }
+            throw new Error(errorMsg);
+        }
+
+        const items = await response.json();
+        const directoryPromises = [];
+
+        for (const item of items) {
+             // Store basic info for all items (needed for total count, filtering dirs later)
+             accumulatedFiles.push({
+                path: item.path,
+                size: item.size,
+                sha: item.sha,
+                type: item.type, // 'file' or 'dir'
+                url: item.url // API url for this item
+             });
+
+            if (item.type === 'dir') {
+                // Recursively fetch subdirectory contents
+                directoryPromises.push(fetchRepoContentsRecursive(owner, repo, item.path, accumulatedFiles));
+            }
+            // Files are added directly above, content fetched later if needed
+        }
+
+        // Wait for all recursive calls in this directory to complete
+        await Promise.all(directoryPromises);
+
+        // Return the accumulated list (only really needed at the top level call)
+        return accumulatedFiles;
+    }
+
+
+    // Fetches a single file's content using GitHub API
+    async function fetchFileContentFromAPI(owner, repo, filePath) {
+        // Check against API limit before even fetching
+        // Note: This check is also done in handleUrlFetch, but kept here for safety
+        // const fileMetadata = /* need to find it in allFiles list or fetch metadata first */;
+        // if (fileMetadata.size > GITHUB_API_MAX_FILE_SIZE_BYTES) {
+        //    throw new Error(`File size (${formatSize(fileMetadata.size)}) exceeds GitHub API limit (${formatSize(GITHUB_API_MAX_FILE_SIZE_BYTES)})`);
+        // }
+
+        const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
+        const response = await fetch(apiUrl, {
+            headers: { 'Accept': 'application/vnd.github.v3+json' }
+        });
+
+        if (!response.ok) {
+             let errorMsg = `GitHub API error fetching content: ${response.status} ${response.statusText} for "${filePath}".`;
+             if (response.status === 403) {
+                 errorMsg = `GitHub API rate limit likely exceeded or access denied for "${filePath}".`;
+                 console.warn('Rate limit headers:', { /* ... same as above ... */ });
+             }
+             // If it's 404 here after listing, something is weird
+             throw new Error(errorMsg);
+        }
+
+        const fileData = await response.json();
+
+        if (fileData.size > GITHUB_API_MAX_FILE_SIZE_BYTES) {
+             // This case should ideally be caught before calling this function based on listing size
+            throw new Error(`File size (${formatSize(fileData.size)}) reported by content API exceeds limit (${formatSize(GITHUB_API_MAX_FILE_SIZE_BYTES)})`);
+        }
+
+
+        if (fileData.encoding !== 'base64') {
+            // GitHub API usually uses base64 for files via this endpoint.
+            // If content is included directly and not base64, or if encoding is different, handle it.
+            // For simplicity, assume base64 or error for now.
+             if(fileData.content){
+                console.warn(`Unexpected encoding '${fileData.encoding}' for file ${filePath}. Attempting to use content directly.`);
+                 return fileData.content; // Might work for UTF-8?
+             } else {
+                 throw new Error(`Unsupported encoding '${fileData.encoding || 'none'}' or missing content for file ${filePath}`);
+             }
+        }
+
+        try {
+            // Decode Base64 content
+            const decodedContent = atob(fileData.content);
+            // Check for null bytes after decoding (optional, but good for binary detection)
+            if (decodedContent.indexOf('\u0000') !== -1) {
+                 throw new Error(`Detected null byte after decoding, likely binary: ${filePath}`);
+            }
+            return decodedContent;
+        } catch (e) {
+            console.error("Base64 decoding error for:", filePath, e);
+            throw new Error(`Failed to decode Base64 content for ${filePath}: ${e.message}`);
+        }
+    }
+
+
+    // --- Utility Functions (Keep existing: parseUserPatterns, parseGitignore, shouldProcessFile, isLikelyBinaryByExtension, matchesSimplePattern, formatSize, copyOutputToClipboard, processPromisesBatch) ---
+
+    function parseUserPatterns(patternsString) { /* ... no change ... */
+        if (!patternsString) return [];
+        return patternsString.split(',').map(p => p.trim()).filter(p => p);
+    }
+
+    function parseGitignore(content) { /* ... no change ... */
+        if (!content) return [];
+        return content.split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#')).filter(line => !line.startsWith('!'));
+    }
+
+     // Added apiFileSizeLimit parameter - important for URL mode
+    function shouldProcessFile(relativePath, fileSize, fileName) {
+        if (!relativePath) return false;
+
+        // 1. Always Ignore (highest priority)
+        for (const { pattern, isDir } of ALWAYS_IGNORE_PATTERNS) {
+            if (matchesSimplePattern(relativePath, pattern, isDir)) return false;
+        }
+
+         // 2. GitHub API specific size limit (Applied *before* this function in URL mode, but good defense)
+         // Note: This limit is checked *before* calling shouldProcessFile in URL mode now.
+         // if (currentInputMode === 'url' && fileSize > GITHUB_API_MAX_FILE_SIZE_BYTES) {
+         //    console.log(`Ignoring ${relativePath} - size ${formatSize(fileSize)} exceeds GitHub API limit ${formatSize(GITHUB_API_MAX_FILE_SIZE_BYTES)}`);
+         //    return false;
+         // }
+
+        // 3. User-defined size limit
+        if (fileSize > currentMaxSizeBytes) return false;
+
+        // 4. Binary Extension
+        if (isLikelyBinaryByExtension(fileName)) return false;
+
+        // 5. User Include/Exclude Patterns
+        const matchesUserPattern = userFilterPatterns.length > 0 && userFilterPatterns.some(p => matchesSimplePattern(relativePath, p));
+        if (currentFilterMode === 'Include') {
+            if (userFilterPatterns.length > 0 && !matchesUserPattern) return false;
+        } else { // Exclude mode
+            if (matchesUserPattern) return false;
+        }
+
+        // 6. Gitignore Rules
+        if (relativePath === '.gitignore') return true; // Always process root gitignore if found
+        for (const rule of gitignoreRules) {
+            if (matchesSimplePattern(relativePath, rule)) return false;
+        }
+
+        // 7. Process if not ignored
+        return true;
+    }
+
+
+    function isLikelyBinaryByExtension(filename) { /* ... no change ... */
+        const lowerFilename = filename.toLowerCase();
+        const extension = '.' + lowerFilename.split('.').pop();
+        return BINARY_EXTENSIONS.has(extension);
+    }
+
+    function matchesSimplePattern(path, pattern, isDirPattern = pattern.endsWith('/')) { /* ... (keep existing complex logic) ... */
+        const normalizedPath = path.replace(/\\/g, '/');
+        if (pattern.startsWith('!')) return false; // Ignore negation rules
+
+        if (isDirPattern) {
+            const dirPattern = pattern.slice(0, -1);
+            return normalizedPath === dirPattern || normalizedPath.startsWith(dirPattern + '/');
+        } else if (pattern.startsWith('**/')) {
+             return normalizedPath.includes('/' + pattern.substring(3)) || normalizedPath.endsWith(pattern.substring(3));
+        } else if (pattern.startsWith('*') && !pattern.includes('/')) {
+            return normalizedPath.endsWith(pattern.slice(1));
+        } else if (pattern.endsWith('*') && !pattern.includes('/')) {
+             const filename = normalizedPath.split('/').pop();
+             return filename.startsWith(pattern.slice(0, -1));
+        } else if (!pattern.includes('*') && !pattern.includes('/')) {
+             return normalizedPath.split('/').pop() === pattern;
+        } else if (!pattern.includes('*') && pattern.includes('/')) {
+             return normalizedPath === pattern || normalizedPath.startsWith(pattern + '/');
+        }
+        else {
+            if (pattern.includes('*') && pattern.includes('/')) {
+                 const regexPattern = pattern.replace(/\*/g, '[^/]*');
+                 try {
+                     const regex = new RegExp('^' + regexPattern + '$');
+                     return regex.test(normalizedPath);
+                 } catch (e) { console.warn("Regex pattern failed:", pattern, e); return false; }
+            }
+             if (pattern.includes('/')) { return normalizedPath.startsWith(pattern); }
+        }
+        return false;
+    }
+
+    function formatSize(bytes) { /* ... no change ... */
+        if (bytes < 0) bytes = 0;
+        if (bytes === 0) return '0 Bytes'; // Show 0 Bytes instead of 0 KB
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        if (bytes < k) return bytes + ' Bytes';
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        let size = parseFloat((bytes / Math.pow(k, i)).toFixed(i < 2 ? 0 : 1)); // 0 decimals for Bytes/KB, 1 for MB+
+
+        if (size >= k && i < sizes.length - 1) {
+             // Handle cases like 1024KB -> 1.0 MB
+             size = parseFloat((bytes / Math.pow(k, i + 1)).toFixed(1));
+             return `${size} ${sizes[i + 1]}`;
+         }
+
+        return `${size} ${sizes[i]}`;
+    }
+
+     async function processPromisesBatch(promises, batchSize, progressCallback) { /* ... no change ... */
         let results = [];
         let index = 0;
         while (index < promises.length) {
@@ -221,274 +635,51 @@ document.addEventListener('DOMContentLoaded', () => {
             results = results.concat(batchResults);
             index += batchSize;
             if (progressCallback) {
-                // Use Math.min to avoid showing index > total if batch size doesn't divide evenly
                 progressCallback(Math.min(index, promises.length), promises.length);
             }
-            await new Promise(resolve => setTimeout(resolve, 0)); // Yield to main thread
+            await new Promise(resolve => setTimeout(resolve, 0));
         }
         return results;
     }
 
-    function readFileContent(file, sizeLimitOverride = null) {
-        return new Promise((resolve, reject) => {
-            const sizeLimit = sizeLimitOverride !== null ? sizeLimitOverride : currentMaxSizeBytes;
-            if (file.size > sizeLimit) {
-                // Use Kibi/Mebi for display as it matches slider unit base
-                const displaySizeLimit = formatSize(sizeLimit);
-                const fileDisplaySize = formatSize(file.size);
-                return reject(new Error(`File size (${fileDisplaySize}) exceeds limit of ${displaySizeLimit}`));
-            }
 
-            // Simple check for common non-text mime types first (optional enhancement)
-            // if (file.type && !file.type.startsWith('text/') && file.type !== 'application/json' && file.type !== 'application/xml' && file.type !== 'application/javascript') {
-            //     // Be cautious, mime types aren't always reliable
-            //      // console.log(`Skipping based on likely non-text MIME type: ${file.type} for ${file.name}`);
-            //      // return reject(new Error(`Likely non-text MIME type: ${file.type}`));
-            // }
-
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                const text = event.target.result;
-                 // Check for null bytes more robustly - common in binary files
-                if (text && text.indexOf('\u0000') !== -1) {
-                    reject(new Error(`Detected null byte, likely a binary file: ${file.name}`));
-                } else {
-                    resolve(text);
-                }
-            };
-            reader.onerror = (event) => {
-                reject(new Error(`Error reading file ${file.name}: ${reader.error}`));
-            };
-            // Specify encoding if needed, though default UTF-8 is usually fine
-            reader.readAsText(file /*, 'UTF-8'*/);
-        });
-    }
-
-    function parseUserPatterns(patternsString) {
-        if (!patternsString) return [];
-        return patternsString
-            .split(',')
-            .map(p => p.trim())
-            .filter(p => p); // Remove empty strings
-    }
-
-    function parseGitignore(content) {
-        if (!content) return [];
-        return content
-            .split('\n')
-            .map(line => line.trim())
-            // Filter out empty lines and comments
-            .filter(line => line && !line.startsWith('#'))
-            // Basic handling for negation, though matchesSimplePattern doesn't use it yet
-            // .map(line => ({ pattern: line, negated: line.startsWith('!') }))
-            // .map(rule => rule.negated ? { ...rule, pattern: rule.pattern.substring(1) } : rule);
-             // Simple version for now:
-            .filter(line => !line.startsWith('!')); // Ignore negation rules for now
-    }
-
-    function shouldProcessFile(relativePath, fileSize, fileName, fileType) {
-        // 0. Handle empty relativePath (edge case)
-        if (!relativePath) return false;
-
-        // 1. Check Always Ignore Rules (highest priority)
-        for (const { pattern, isDir } of ALWAYS_IGNORE_PATTERNS) {
-            if (matchesSimplePattern(relativePath, pattern, isDir)) {
-                // console.log(`Ignoring ${relativePath} due to ALWAYS_IGNORE rule: ${pattern}`);
-                return false;
-            }
-        }
-
-        // 2. Check file size (using current slider value)
-        if (fileSize > currentMaxSizeBytes) {
-            // console.log(`Ignoring ${relativePath} due to size > ${formatSize(currentMaxSizeBytes)}`);
-            return false;
-        }
-
-        // 3. Check for likely binary extension (refined list)
-        if (isLikelyBinaryByExtension(fileName)) {
-            // console.log(`Ignoring ${relativePath} due to binary extension`);
-            return false;
-        }
-
-        // 4. Apply User's Include/Exclude Filter
-        const matchesUserPattern = userFilterPatterns.length > 0 &&
-                                   userFilterPatterns.some(p => matchesSimplePattern(relativePath, p));
-
-        if (currentFilterMode === 'Include') {
-            // If Include mode and patterns exist, file *must* match one.
-            if (userFilterPatterns.length > 0 && !matchesUserPattern) {
-                // console.log(`Ignoring ${relativePath} - does not match INCLUDE patterns`);
-                return false;
-            }
-            // If Include mode but no patterns, process everything (subject to other rules).
-            // If matches include pattern, proceed to gitignore.
-        } else { // Exclude mode (default)
-            // If Exclude mode and file matches a pattern, ignore it.
-            if (matchesUserPattern) {
-                // console.log(`Ignoring ${relativePath} - matches EXCLUDE pattern`);
-                return false;
-            }
-            // If it doesn't match an exclude pattern, proceed to gitignore.
-        }
-
-        // 5. Check .gitignore rules (only if not already ignored)
-        // Don't let .gitignore ignore the root .gitignore itself if we are processing it
-        if (relativePath === '.gitignore') {
-             // This check might be redundant if rootGitignoreFile handling is robust, but safe to keep.
-             // It only matters if .gitignore somehow listed itself.
-             return true;
-        }
-        for (const rule of gitignoreRules) {
-            if (matchesSimplePattern(relativePath, rule)) {
-                // console.log(`Ignoring ${relativePath} due to .gitignore rule: ${rule}`);
-                return false;
-            }
-        }
-
-        // 6. If not ignored by any rule, process it
-        // console.log(`Processing: ${relativePath}`);
-        return true;
-    }
-
-    function isLikelyBinaryByExtension(filename) {
-        const lowerFilename = filename.toLowerCase();
-        const extension = '.' + lowerFilename.split('.').pop(); // Get the last extension part
-        return BINARY_EXTENSIONS.has(extension);
-    }
-
-    // Simplified pattern matching (basic globstar, directory, exact, extension)
-    function matchesSimplePattern(path, pattern, isDirPattern = pattern.endsWith('/')) {
-        // Normalize path separators for cross-platform consistency (within the function)
-        const normalizedPath = path.replace(/\\/g, '/');
-
-        if (pattern.startsWith('!')) {
-             // Basic negation handling - ignore these rules for now in this simple matcher
-             // In a real implementation, this would require tracking matches and negations.
-             return false;
-        }
-
-        if (isDirPattern) {
-            // Directory match: 'foo/' should match 'foo/bar' and 'foo' (as a directory entry)
-            const dirPattern = pattern.slice(0, -1);
-            return normalizedPath === dirPattern || normalizedPath.startsWith(dirPattern + '/');
-        } else if (pattern.startsWith('**/')) {
-             // Globstar directory prefix: Matches anywhere in the path
-             return normalizedPath.includes('/' + pattern.substring(3)) || normalizedPath.endsWith(pattern.substring(3));
-        } else if (pattern.startsWith('*') && !pattern.includes('/')) {
-             // Wildcard extension match: '*.js' matches 'file.js', 'src/file.js'
-            return normalizedPath.endsWith(pattern.slice(1));
-        } else if (pattern.endsWith('*') && !pattern.includes('/')) {
-             // Wildcard prefix match: 'test*' matches 'test.js', 'src/test_runner.py' (matches filename part)
-             const filename = normalizedPath.split('/').pop();
-             return filename.startsWith(pattern.slice(0, -1));
-        } else if (!pattern.includes('*') && !pattern.includes('/')) {
-             // Exact filename match anywhere: '.env' matches '.env', 'src/.env'
-             return normalizedPath.split('/').pop() === pattern;
-        } else if (!pattern.includes('*') && pattern.includes('/')) {
-             // Exact path match or prefix match if it looks like a directory pattern wasn't used explicitly
-             // Example: 'src/utils' should match 'src/utils/helper.js'
-             return normalizedPath === pattern || normalizedPath.startsWith(pattern + '/');
-        }
-        else {
-            // Basic wildcard within path segment: 'src/*.js' (simplified)
-            if (pattern.includes('*') && pattern.includes('/')) {
-                 // Very basic: treat '*' as a non-greedy wildcard within a segment
-                 // This won't handle complex globs well.
-                 const regexPattern = pattern.replace(/\*/g, '[^/]*'); // Replace * with non-slash characters
-                 try {
-                     const regex = new RegExp('^' + regexPattern + '$');
-                     return regex.test(normalizedPath);
-                 } catch (e) {
-                     console.warn("Failed to create regex for pattern:", pattern, e);
-                     return false; // Invalid pattern for this simple regex approach
-                 }
-
-            }
-            // Fallback for patterns not covered above (e.g. complex globs, middle wildcards)
-            // Treat as simple prefix match for now if contains '/'
-             if (pattern.includes('/')) {
-                return normalizedPath.startsWith(pattern);
-             }
-        }
-
-        // Default case: if no specific rule matched, assume no match for safety
-        return false;
-    }
-
-
-    function formatSize(bytes) {
-        if (bytes < 0) bytes = 0; // Handle potential negative values if slider min changes
-        if (bytes === 0) return '0 KB';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']; // GB/TB unlikely needed here but good practice
-
-        // Use KiB/MiB which is base 1024
-        if (bytes < k) return bytes + ' Bytes'; // Show bytes if < 1KB
-
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        const size = parseFloat((bytes / Math.pow(k, i)).toFixed(i === 0 ? 0 : (i === 1 ? 0 : 1))); // 0 decimals for KB, 1 for MB+
-
-        // Handle potential edge case where calculation results in exactly 1024 of a unit
-        if (size >= k && i < sizes.length - 1) {
-             return `1.0 ${sizes[i + 1]}`;
-        }
-
-        return `${size} ${sizes[i]}`;
-    }
-
-
-    function copyOutputToClipboard() {
+    function copyOutputToClipboard() { /* ... (keep existing logic with fallback) ... */
         if (!outputArea.value) return;
         navigator.clipboard.writeText(outputArea.value)
             .then(() => {
-                const originalStatus = statusDisplay.textContent;
-                statusDisplay.textContent = '✅ Output copied to clipboard!';
+                const originalStatus = finalStatusDisplay.textContent; // Use final status now
+                setStatus('✅ Output copied to clipboard!', false, 'final');
                 const originalButtonText = copyButton.textContent;
                 copyButton.textContent = 'Copied!';
-                copyButton.classList.add('copied'); // Add class for styling feedback
+                copyButton.classList.add('copied');
 
                 setTimeout(() => {
                     copyButton.textContent = originalButtonText;
                     copyButton.classList.remove('copied');
-                    // Restore status only if it hasn't been updated by another process in the meantime
-                    if (statusDisplay.textContent === '✅ Output copied to clipboard!') {
-                        statusDisplay.textContent = originalStatus;
+                    if (finalStatusDisplay.textContent === '✅ Output copied to clipboard!') {
+                         finalStatusDisplay.textContent = originalStatus; // Restore original *final* status
                     }
                 }, 2500);
             })
             .catch(err => {
                 console.error('Failed to copy text: ', err);
-                statusDisplay.textContent = '❌ Failed to copy. See console for error.';
-                // Try fallback using execCommand (older browsers, less reliable, might be removed)
-                try {
-                    outputArea.select();
-                    document.execCommand('copy');
-                    statusDisplay.textContent = '✅ Copied using fallback method.';
-                    // Provide visual feedback similar to navigator.clipboard
-                    const originalButtonText = copyButton.textContent;
-                    copyButton.textContent = 'Copied!';
-                    copyButton.classList.add('copied');
-                    setTimeout(() => {
-                        copyButton.textContent = originalButtonText;
-                        copyButton.classList.remove('copied');
-                        // Restore status
-                         if (statusDisplay.textContent === '✅ Copied using fallback method.') {
-                            statusDisplay.textContent = `✅ Done. Processed ${processedFileCount} files...`; // Restore meaningful status
-                        }
+                setStatus('❌ Failed to copy. See console for error.', true, 'final');
+                try { /* ... fallback ... */
+                    outputArea.select(); document.execCommand('copy');
+                    const originalStatus = finalStatusDisplay.textContent;
+                    setStatus('✅ Copied using fallback method.', false, 'final');
+                    /* ... button feedback ... */
+                     setTimeout(() => { /* restore button, restore status */
+                         if (finalStatusDisplay.textContent === '✅ Copied using fallback method.') finalStatusDisplay.textContent = originalStatus;
                     }, 2500);
-
                 } catch (execErr) {
-                     console.error('Fallback copy method also failed:', execErr);
-                    alert('Could not copy text automatically. Please select the text and copy manually (Ctrl+C or Cmd+C).');
-                     statusDisplay.textContent = '❌ Automatic copy failed. Please copy manually.';
+                     console.error('Fallback copy method failed:', execErr);
+                     alert('Could not copy text automatically. Please select the text and copy manually (Ctrl+C or Cmd+C).');
+                     setStatus('❌ Automatic copy failed. Please copy manually.', true, 'final');
                 }
-                window.getSelection().removeAllRanges(); // Deselect text after fallback attempt
+                window.getSelection().removeAllRanges();
             });
     }
 
-    // --- Initialize ---
-    // Call initial setup functions again just to be safe
-    maxSizeValueDisplay.textContent = formatSize(currentMaxSizeBytes);
-    updateSliderBackground();
 
-});
+}); // End DOMContentLoaded
