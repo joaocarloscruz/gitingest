@@ -1,80 +1,48 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // --- Existing UI Elements ---
     const folderInput = document.getElementById('folderInput');
     const statusDisplay = document.getElementById('status');
     const outputArea = document.getElementById('output');
     const copyButton = document.getElementById('copyButton');
-
-    // --- New UI Elements ---
     const filterModeSelect = document.getElementById('filterMode');
     const filterPatternsInput = document.getElementById('filterPatterns');
     const maxSizeSlider = document.getElementById('maxSizeSlider');
     const maxSizeValueDisplay = document.getElementById('maxSizeValue');
+
+    // --- NEW UI Elements ---
+    const directoryOutputArea = document.getElementById('directoryOutput');
+    const copyStructureButton = document.getElementById('copyStructureButton');
     // --- End New UI Elements ---
 
     // --- Configuration ---
-    // Default max size (will be updated by slider)
     let currentMaxSizeBytes = parseInt(maxSizeSlider.value) * 1024;
+    const BINARY_EXTENSIONS = new Set([ /* ... (keep existing set) ... */
+        '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.ico', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.ods', '.odp', '.zip', '.tar', '.gz', '.rar', '.7z', '.bz2', '.exe', '.dll', '.so', '.dylib', '.app', '.dmg', '.mp3', '.wav', '.ogg', '.mp4', '.avi', '.mov', '.webm', '.class', '.jar', '.pyc', '.pyd', '.lock', '.svg', '.woff', '.woff2', '.ttf', '.otf', '.eot']);
+    const ALWAYS_IGNORE_PATTERNS = [ /* ... (keep existing array) ... */
+         '.git/', 'node_modules/', 'dist/', 'build/', 'coverage/', '__pycache__/', '*.pyc', '.DS_Store', 'Thumbs.db'].map(p => ({ pattern: p, isDir: p.endsWith('/') }));
 
-    // Common binary file extensions to ignore (add more if needed)
-    const BINARY_EXTENSIONS = new Set([
-        '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.ico', // Images
-        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.ods', '.odp', // Documents
-        '.zip', '.tar', '.gz', '.rar', '.7z', '.bz2', // Archives
-        '.exe', '.dll', '.so', '.dylib', '.app', '.dmg', // Executables/Binaries
-        '.mp3', '.wav', '.ogg', '.mp4', '.avi', '.mov', '.webm', // Audio/Video
-        '.class', '.jar', // Java bytecode
-        '.pyc', '.pyd', // Python bytecode
-        '.lock', // Lock files
-        '.svg', '.woff', '.woff2', '.ttf', '.otf', '.eot' // Assets/Fonts
-    ]);
-
-    // Directories/files to always ignore (these override include/exclude)
-    const ALWAYS_IGNORE_PATTERNS = [
-        '.git/',
-        'node_modules/',
-        'dist/',
-        'build/',
-        'coverage/',
-        '__pycache__/',
-        '*.pyc',
-        '.DS_Store',
-        'Thumbs.db'
-    ].map(p => ({ pattern: p, isDir: p.endsWith('/') })); // Pre-process for efficiency
-    // --- End Configuration ---
-
+    // --- State Variables ---
     let gitignoreRules = [];
     let userFilterPatterns = [];
     let currentFilterMode = filterModeSelect.value;
+    let processedFilePaths = []; // Store paths for the directory tree
+    let rootFolderName = ''; // Store the name of the selected folder
 
     // --- Event Listeners ---
     folderInput.addEventListener('change', handleFolderSelect);
-    copyButton.addEventListener('click', copyOutputToClipboard);
+    copyButton.addEventListener('click', () => copyTextToClipboard(outputArea.value, copyButton, statusDisplay, "Output copied to clipboard!", "Failed to copy output."));
+    copyStructureButton.addEventListener('click', () => copyTextToClipboard(directoryOutputArea.value, copyStructureButton, statusDisplay, "Directory structure copied!", "Failed to copy structure.")); // Use helper
 
-    // Update max size and display when slider changes
-    maxSizeSlider.addEventListener('input', () => {
+    maxSizeSlider.addEventListener('input', () => { /* ... (keep existing logic) ... */
         const kbValue = parseInt(maxSizeSlider.value);
         currentMaxSizeBytes = kbValue * 1024;
         maxSizeValueDisplay.textContent = formatSize(currentMaxSizeBytes);
-
-        // Update slider track gradient dynamically
         const percentage = (kbValue / parseInt(maxSizeSlider.max)) * 100;
         maxSizeSlider.style.setProperty('--value-percent', `${percentage}%`);
-
-        // Note: If files are already loaded, changing the slider won't re-filter
-        // until the folder is selected again. This is simpler behavior.
     });
-
-    // Update filter mode when dropdown changes
-    filterModeSelect.addEventListener('change', () => {
-        currentFilterMode = filterModeSelect.value;
-         // Also doesn't re-filter automatically
-    });
-
-    // Update user patterns when input changes (we parse them during processing)
-    // filterPatternsInput.addEventListener('input', ...) // No immediate action needed
+    filterModeSelect.addEventListener('change', () => { currentFilterMode = filterModeSelect.value; });
 
     // --- Initial Setup ---
-    // Set initial slider display and background
     maxSizeValueDisplay.textContent = formatSize(currentMaxSizeBytes);
     const initialPercentage = (parseInt(maxSizeSlider.value) / parseInt(maxSizeSlider.max)) * 100;
     maxSizeSlider.style.setProperty('--value-percent', `${initialPercentage}%`);
@@ -87,114 +55,200 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!files || files.length === 0) {
             statusDisplay.textContent = 'No folder selected or folder is empty.';
             outputArea.value = '';
+            directoryOutputArea.value = ''; // Clear structure output
             copyButton.disabled = true;
+            copyStructureButton.disabled = true; // Disable structure copy
             return;
         }
 
+        // Reset state
         statusDisplay.textContent = `Preparing... Reading filters...`;
         outputArea.value = 'Processing... Please wait.\n';
+        directoryOutputArea.value = ''; // Clear previous structure
         copyButton.disabled = true;
-        gitignoreRules = []; // Reset rules for new selection
-        userFilterPatterns = parseUserPatterns(filterPatternsInput.value); // Parse user patterns now
-        currentFilterMode = filterModeSelect.value; // Get current mode
+        copyStructureButton.disabled = true;
+        gitignoreRules = [];
+        userFilterPatterns = parseUserPatterns(filterPatternsInput.value);
+        currentFilterMode = filterModeSelect.value;
+        processedFilePaths = []; // Reset paths for tree
+        rootFolderName = files[0]?.webkitRelativePath.split('/')[0] || 'selected-folder'; // Get root folder name
 
-        // Sort files to process .gitignore first if possible (best effort)
-        const sortedFiles = Array.from(files).sort((a, b) => {
-            if (a.webkitRelativePath.endsWith('/.gitignore')) return -1;
+        // Sort files (process .gitignore first)
+        const sortedFiles = Array.from(files).sort((a, b) => { /* ... (keep existing sort) ... */
+             if (a.webkitRelativePath.endsWith('/.gitignore')) return -1;
             if (b.webkitRelativePath.endsWith('/.gitignore')) return 1;
             return a.webkitRelativePath.localeCompare(b.webkitRelativePath);
-        });
+         });
 
-        // Find and parse .gitignore at the root
+        // Read .gitignore
         const gitignoreFile = sortedFiles.find(f => f.webkitRelativePath.split('/').length === 2 && f.name === '.gitignore');
         if (gitignoreFile) {
             try {
                 statusDisplay.textContent = 'Reading .gitignore...';
-                const gitignoreContent = await readFileContent(gitignoreFile, true); // Allow reading .gitignore even if > size limit
+                const gitignoreContent = await readFileContent(gitignoreFile, true);
                 gitignoreRules = parseGitignore(gitignoreContent);
-                 statusDisplay.textContent = `Found ${gitignoreRules.length} rules in .gitignore. Processing files...`;
+                statusDisplay.textContent = `Found ${gitignoreRules.length} rules in .gitignore. Processing files...`;
             } catch (error) {
                 console.error("Error reading .gitignore:", error);
-                statusDisplay.textContent = 'Could not read .gitignore, proceeding without it. Processing files...';
+                statusDisplay.textContent = 'Could not read .gitignore. Processing files...';
             }
         } else {
              statusDisplay.textContent = 'No .gitignore found at root. Processing files...';
         }
+        await new Promise(resolve => setTimeout(resolve, 0)); // UI update
 
-
-        let combinedOutput = '';
-        let processedFileCount = 0;
+        // --- Filter files and collect paths for tree ---
         let ignoredFileCount = 0;
         const totalFiles = sortedFiles.length;
         const fileProcessingPromises = [];
 
-        statusDisplay.textContent = `Analyzing ${totalFiles} items...`;
-        await new Promise(resolve => setTimeout(resolve, 0)); // Allow UI update
+        statusDisplay.textContent = `Analyzing ${totalFiles} items for structure and content...`;
+        await new Promise(resolve => setTimeout(resolve, 0));
 
         for (let i = 0; i < sortedFiles.length; i++) {
             const file = sortedFiles[i];
-            const filePath = file.webkitRelativePath; // e.g., "my-repo/src/main.js"
+            const filePath = file.webkitRelativePath;
             const relativePathInRepo = filePath.substring(filePath.indexOf('/') + 1);
 
-            // Run filter checks (more efficient than reading every file first)
-            if (!shouldProcessFile(relativePathInRepo, file.size, file.name)) {
+            if (shouldProcessFile(relativePathInRepo, file.size, file.name)) {
+                processedFilePaths.push(relativePathInRepo); // Add path for the tree
+                fileProcessingPromises.push(
+                    readFileContent(file)
+                        .then(content => ({ path: relativePathInRepo, content: content }))
+                        .catch(error => {
+                            console.warn(`Skipping content of ${relativePathInRepo}: ${error.message}`);
+                            // Don't increment ignoredFileCount here, it's counted below if read fails
+                            return null; // Mark as failed read
+                        })
+                );
+            } else {
                 ignoredFileCount++;
-                continue;
             }
 
-            // If it passes filters, add a promise to read it
-            fileProcessingPromises.push(
-                readFileContent(file)
-                    .then(content => {
-                        return { path: relativePathInRepo, content: content };
-                    })
-                    .catch(error => {
-                        console.warn(`Skipping file ${relativePathInRepo}: ${error.message}`);
-                        ignoredFileCount++; // Count as ignored if read fails (e.g., binary detection during read)
-                        return null; // Indicate failure
-                    })
-            );
-
-             // Update status periodically during analysis phase
             if (i % 100 === 0 || i === totalFiles - 1) {
-                 statusDisplay.textContent = `Analyzing item ${i + 1}/${totalFiles}... (Ignored so far: ${ignoredFileCount})`;
-                 await new Promise(resolve => setTimeout(resolve, 0)); // Prevent freezing
+                 statusDisplay.textContent = `Analyzing item ${i + 1}/${totalFiles}... (Included so far: ${processedFilePaths.length})`;
+                 await new Promise(resolve => setTimeout(resolve, 0));
             }
         }
 
-        statusDisplay.textContent = `Reading ${fileProcessingPromises.length} filtered files...`;
+        // --- Generate and Display Directory Tree ---
+        statusDisplay.textContent = "Generating directory structure...";
+        await new Promise(resolve => setTimeout(resolve, 0));
+        let directoryStructure = '';
+        if (processedFilePaths.length > 0) {
+            try {
+                 directoryStructure = generateDirectoryTree(processedFilePaths, rootFolderName);
+                 directoryOutputArea.value = directoryStructure;
+                 copyStructureButton.disabled = false;
+            } catch(e) {
+                 console.error("Error generating directory tree:", e);
+                 directoryOutputArea.value = "Error generating directory structure.";
+                 copyStructureButton.disabled = true;
+            }
+        } else {
+            directoryOutputArea.value = "No files included based on filters.";
+            copyStructureButton.disabled = true;
+        }
+
+
+        // --- Read File Contents Concurrently ---
+        statusDisplay.textContent = `Reading content of ${fileProcessingPromises.length} files...`;
         await new Promise(resolve => setTimeout(resolve, 0));
 
-        // Process reads concurrently
         const results = await processPromisesBatch(fileProcessingPromises, 10, (done, total) => {
-            statusDisplay.textContent = `Reading file ${done}/${total}...`;
+            statusDisplay.textContent = `Reading file content ${done}/${total}...`;
         });
 
-
-        // Combine results
+        // --- Combine results for main output ---
+        let combinedOutput = '';
+        let processedFileCount = 0; // Count successful reads
         results.forEach(result => {
-            if (result && result.content !== null) { // Check for null results from read errors
+            if (result && result.content !== null) {
                 combinedOutput += `--- FILENAME: ${result.path} ---\n`;
                 combinedOutput += result.content;
                 combinedOutput += '\n\n';
                 processedFileCount++;
             } else if (result === null) {
-                // Already counted as ignored if readFileContent failed
+                 ignoredFileCount++; // Increment ignore count for files that failed reading
             }
         });
-
-        // Final status update needs accurate ignored count
+        // Adjust ignored count - it's total minus successfully read files
         ignoredFileCount = totalFiles - processedFileCount;
 
         outputArea.value = combinedOutput;
-        statusDisplay.textContent = `Done. Processed ${processedFileCount} files. Ignored ${ignoredFileCount} items. Total items: ${totalFiles}.`;
+        statusDisplay.textContent = `Done. Displayed structure for ${processedFilePaths.length} items. Processed content of ${processedFileCount} files. Ignored ${ignoredFileCount} items. Total items: ${totalFiles}.`;
         copyButton.disabled = combinedOutput.length === 0;
 
-        folderInput.value = null; // Allow selecting the same folder again
+        folderInput.value = null;
     }
 
-     // Helper to process promises in batches with progress callback
-    async function processPromisesBatch(promises, batchSize, progressCallback) {
+    // --- Directory Tree Generation ---
+    function generateDirectoryTree(paths, rootName = 'root') {
+        if (!paths || paths.length === 0) return '';
+
+        const tree = { __isDirectory: true, __children: {} }; // Use __children to store nodes
+
+        // Build the intermediate tree structure
+        paths.forEach(path => {
+            const parts = path.split('/').filter(p => p); // Filter empty parts
+            let currentLevel = tree.__children;
+            let currentPath = '';
+
+            parts.forEach((part, index) => {
+                currentPath = currentPath ? `${currentPath}/${part}` : part;
+                const isLastPart = index === parts.length - 1;
+
+                if (!currentLevel[part]) {
+                    currentLevel[part] = {
+                        __isDirectory: !isLastPart, // It's a directory if it's not the last part
+                        __children: {}
+                    };
+                } else {
+                     // If an entry exists, make sure it's marked as a directory if it's not the last part
+                     if (!isLastPart) {
+                         currentLevel[part].__isDirectory = true;
+                     }
+                }
+
+
+                if (!isLastPart) {
+                    currentLevel = currentLevel[part].__children;
+                }
+            });
+        });
+
+        // Recursive function to format the tree string
+        function formatNode(node, indent = '', isLast = true) {
+            let output = '';
+            const children = node.__children;
+            const keys = Object.keys(children).sort(); // Sort entries alphabetically
+            const prefix = indent + (isLast ? '└── ' : '├── ');
+            const childIndent = indent + (isLast ? '    ' : '│   ');
+
+            keys.forEach((key, index) => {
+                const childNode = children[key];
+                const isChildLast = index === keys.length - 1;
+                output += prefix + key + (childNode.__isDirectory ? '/' : '') + '\n';
+                if (childNode.__isDirectory && Object.keys(childNode.__children).length > 0) {
+                    output += formatNode(childNode, childIndent, isChildLast);
+                }
+            });
+            // Remove trailing newline from the recursive calls within this level
+             // output = output.trimEnd(); // Be careful this doesn't remove needed newlines between items
+             return output; // Output already includes newlines
+        }
+
+        // Start formatting from the root
+        let treeString = `Directory structure:\n`;
+        treeString += `└── ${rootName}/\n`; // Add the root folder name
+        treeString += formatNode({ __children: tree.__children, __isDirectory: true }, '    ', true); // Start indent for root children
+
+        return treeString.trimEnd(); // Remove final trailing newline
+    }
+
+
+    // --- Helper Functions (Keep existing ones) ---
+    async function processPromisesBatch(promises, batchSize, progressCallback) { /* ... keep ... */
         let results = [];
         let index = 0;
         while (index < promises.length) {
@@ -205,19 +259,16 @@ document.addEventListener('DOMContentLoaded', () => {
             if (progressCallback) {
                 progressCallback(Math.min(index, promises.length), promises.length);
             }
-             await new Promise(resolve => setTimeout(resolve, 0)); // Yield to main thread
+             await new Promise(resolve => setTimeout(resolve, 0)); // Yield
         }
         return results;
     }
 
-
-    function readFileContent(file, ignoreSizeLimit = false) {
-        return new Promise((resolve, reject) => {
+    function readFileContent(file, ignoreSizeLimit = false) { /* ... keep ... */
+         return new Promise((resolve, reject) => {
             if (!ignoreSizeLimit && file.size > currentMaxSizeBytes) {
                 return reject(new Error(`File size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds limit of ${formatSize(currentMaxSizeBytes)}`));
             }
-            // Binary check based on extension is now done in shouldProcessFile
-
             const reader = new FileReader();
             reader.onload = (event) => {
                 if (event.target.result && event.target.result.includes('\u0000')) {
@@ -232,126 +283,67 @@ document.addEventListener('DOMContentLoaded', () => {
             reader.readAsText(file);
         });
     }
-
-    function parseUserPatterns(patternsString) {
-        if (!patternsString) return [];
-        return patternsString
-            .split(',')
-            .map(p => p.trim())
-            .filter(p => p); // Remove empty strings
+    function parseUserPatterns(patternsString) { /* ... keep ... */
+         if (!patternsString) return [];
+        return patternsString.split(',').map(p => p.trim()).filter(p => p);
     }
-
-    function parseGitignore(content) {
-        if (!content) return [];
-        return content
-            .split('\n')
-            .map(line => line.trim())
-            .filter(line => line && !line.startsWith('#'));
+    function parseGitignore(content) { /* ... keep ... */
+         if (!content) return [];
+        return content.split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#'));
     }
-
-    function shouldProcessFile(relativePath, fileSize, fileName) {
-        // 1. Check Always Ignore Rules (these take highest priority)
+    function shouldProcessFile(relativePath, fileSize, fileName) { /* ... keep ... */
+         // 1. Always Ignore
         for (const { pattern, isDir } of ALWAYS_IGNORE_PATTERNS) {
-            if (matchesSimplePattern(relativePath, pattern, isDir)) {
-                // console.log(`Ignoring ${relativePath} due to ALWAYS_IGNORE rule: ${pattern}`);
-                return false; // Ignore
-            }
+            if (matchesSimplePattern(relativePath, pattern, isDir)) return false;
         }
-
-        // 2. Check file size (using current slider value)
-        if (fileSize > currentMaxSizeBytes) {
-            // console.log(`Ignoring ${relativePath} due to size > ${formatSize(currentMaxSizeBytes)}`);
-            return false; // Ignore
-        }
-
-        // 3. Check for likely binary extension
-        if (isLikelyBinaryByExtension(fileName)) {
-            // console.log(`Ignoring ${relativePath} due to binary extension`);
-            return false; // Ignore
-        }
-
-        // 4. Apply User's Include/Exclude Filter
-        const matchesUserPattern = userFilterPatterns.length > 0 &&
-                                   userFilterPatterns.some(p => matchesSimplePattern(relativePath, p));
-
+        // 2. Size
+        if (fileSize > currentMaxSizeBytes) return false;
+        // 3. Binary Extension
+        if (isLikelyBinaryByExtension(fileName)) return false;
+        // 4. User Filter
+        const matchesUserPattern = userFilterPatterns.length > 0 && userFilterPatterns.some(p => matchesSimplePattern(relativePath, p));
         if (currentFilterMode === 'Include') {
-            // If Include mode is active AND there are patterns, the file MUST match one
-            if (userFilterPatterns.length > 0 && !matchesUserPattern) {
-                // console.log(`Ignoring ${relativePath} - does not match INCLUDE patterns`);
-                return false; // Ignore
-            }
-            // If Include mode is active but no patterns are given, process everything (subject to other rules)
-            // If it matches an include pattern, proceed to gitignore check.
-        } else { // Exclude mode
-            // If Exclude mode is active AND the file matches a pattern, ignore it
-            if (matchesUserPattern) {
-                // console.log(`Ignoring ${relativePath} - matches EXCLUDE pattern`);
-                return false; // Ignore
-            }
-            // If it doesn't match an exclude pattern, proceed to gitignore check.
+            if (userFilterPatterns.length > 0 && !matchesUserPattern) return false;
+        } else { // Exclude
+            if (matchesUserPattern) return false;
         }
-
-        // 5. Check .gitignore rules (only if not already ignored)
-        // Special case: Don't let .gitignore ignore the root .gitignore file itself
-        if (relativePath === '.gitignore') {
-             return true; // Always process the root .gitignore if found earlier
+        // 5. Gitignore
+        if (relativePath !== '.gitignore') { // Don't ignore the root .gitignore itself
+             for (const rule of gitignoreRules) {
+                if (matchesSimplePattern(relativePath, rule)) return false;
+             }
         }
-        for (const rule of gitignoreRules) {
-            if (matchesSimplePattern(relativePath, rule)) {
-                // console.log(`Ignoring ${relativePath} due to .gitignore rule: ${rule}`);
-                return false; // Ignore
-            }
-        }
-
-        // 6. If not ignored by any rule, process it
+        // 6. Process if not ignored
         return true;
-    }
-
-    function isLikelyBinaryByExtension(filename) {
-        const lowerFilename = filename.toLowerCase();
+     }
+    function isLikelyBinaryByExtension(filename) { /* ... keep ... */
+         const lowerFilename = filename.toLowerCase();
         for (const ext of BINARY_EXTENSIONS) {
-            if (lowerFilename.endsWith(ext)) {
-                return true;
-            }
+            if (lowerFilename.endsWith(ext)) return true;
         }
         return false;
     }
-
-    function matchesSimplePattern(path, pattern, isDirPattern = pattern.endsWith('/')) {
-        // path = "src/file.js" or "config/settings.json" or "image.png"
-        // pattern = "node_modules/" or "*.log" or "config/" or ".env" or "test*"
-
-        if (isDirPattern) {
-            // Directory match: Check if path starts with the pattern or is exactly the pattern minus slash
+    function matchesSimplePattern(path, pattern, isDirPattern = pattern.endsWith('/')) { /* ... keep ... */
+         if (isDirPattern) {
             const dirPattern = pattern.endsWith('/') ? pattern.slice(0, -1) : pattern;
             return path === dirPattern || path.startsWith(dirPattern + '/');
         } else if (pattern.startsWith('*') && !pattern.includes('/')) {
-             // Wildcard at start, simple filename: *.log matches file.log, src/file.log
             return path.endsWith(pattern.slice(1));
         } else if (pattern.endsWith('*') && !pattern.includes('/')) {
-             // Wildcard at end, simple filename: test* matches test.js, src/test_file.py
              const filename = path.split('/').pop();
              return filename.startsWith(pattern.slice(0, -1));
         } else if (!pattern.includes('*') && !pattern.includes('/')) {
-             // Exact filename match anywhere: '.env' matches '.env', 'src/.env'
              return path.split('/').pop() === pattern;
         } else {
-             // More specific path or pattern with slashes (treat as prefix or exact match)
-             // Handles: 'src/config.js', 'src/', 'data/*.csv' (basic)
              if (pattern.endsWith('*')) {
-                 // e.g. 'src/data*' should match 'src/data.csv', 'src/database/file'
                  const prefix = pattern.slice(0, -1);
                  return path.startsWith(prefix);
              } else {
-                // Exact match 'src/file.js' or prefix match 'src/'
                 return path === pattern || path.startsWith(pattern + '/');
              }
         }
-         // Note: This simplified matching doesn't cover many gitignore complexities like '**'
-         // or negations ('!').
     }
-
-    function formatSize(bytes) {
+    function formatSize(bytes) { /* ... keep ... */
         if (bytes === 0) return '0 KB';
         const kb = bytes / 1024;
         if (kb < 1024) {
@@ -361,28 +353,32 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function copyOutputToClipboard() {
-        if (!outputArea.value) return;
-        navigator.clipboard.writeText(outputArea.value)
+    // --- NEW Reusable Copy Helper ---
+    function copyTextToClipboard(text, buttonElement, statusElement, successMessage, errorMessage) {
+        if (!text) return;
+        navigator.clipboard.writeText(text)
             .then(() => {
-                const originalStatus = statusDisplay.textContent; // Store original status
-                statusDisplay.textContent = 'Output copied to clipboard!';
-                const originalText = copyButton.textContent;
-                copyButton.textContent = 'Copied!';
+                const originalStatus = statusElement.textContent;
+                const originalButtonText = buttonElement.innerHTML; // Store full HTML content
+                statusElement.textContent = successMessage;
+                buttonElement.innerHTML = 'Copied!'; // Simple text feedback
+                buttonElement.disabled = true; // Briefly disable
+
                 setTimeout(() => {
-                    copyButton.textContent = originalText;
-                    statusDisplay.textContent = originalStatus; // Restore original status
-                }, 2500);
+                    buttonElement.innerHTML = originalButtonText; // Restore original HTML
+                    statusElement.textContent = originalStatus;
+                    buttonElement.disabled = false; // Re-enable
+                }, 2000);
             })
             .catch(err => {
-                console.error('Failed to copy text: ', err);
-                statusDisplay.textContent = 'Failed to copy. See console for error.';
-                alert('Could not copy text. You might need to grant clipboard permissions or copy manually.');
+                console.error('Failed to copy: ', err);
+                statusElement.textContent = errorMessage + ' See console.';
+                // Optionally alert user
+                // alert('Could not copy text. You might need to grant clipboard permissions or copy manually.');
             });
     }
 
     // --- Initialize ---
-    // Set initial slider display value correctly
     maxSizeValueDisplay.textContent = formatSize(currentMaxSizeBytes);
 
 });
