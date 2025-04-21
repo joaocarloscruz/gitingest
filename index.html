@@ -8,117 +8,89 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚙️</text></svg>">
 
     <link rel="stylesheet" href="style.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
-    <!-- Font Awesome for icons (optional, replace emojis if you prefer) -->
-    <!-- <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"> -->
+    <!-- Removed Google Fonts for simplicity, add back if desired -->
+
 </head>
 <body>
 
     <header>
         <h1><span class="icon">⚙️</span>Codebase Ingest Tool</h1>
-        <!-- Input Controls Section -->
-        <div class="controls-container card">
-            <div class="input-mode">
-                 <label class="mode-label">Input Source:</label>
-                 <div class="radio-group">
-                     <input type="radio" id="modeLocal" name="inputMode" value="local" checked>
-                     <label for="modeLocal">Local Folder</label>
-                     <input type="radio" id="modeUrl" name="inputMode" value="url">
-                     <label for="modeUrl">Git URL</label>
-                 </div>
-            </div>
-            <!-- Local Folder Input -->
-            <div id="localModeSection" class="input-section">
-                 <label for="folderInput" class="button primary">Select Folder</label>
-                 <input type="file" id="folderInput" webkitdirectory directory style="display: none;">
-                 <span id="localStatus" class="status-text">No folder selected.</span>
-            </div>
-            <!-- URL Input -->
-            <div id="urlModeSection" class="input-section" style="display: none;">
-                  <input type="url" id="urlInput" placeholder="e.g., https://github.com/owner/repository">
-                  <button id="fetchUrlButton" class="button primary">Fetch Repo</button>
-                  <span id="urlStatus" class="status-text">Enter public GitHub URL.</span>
-            </div>
-             <!-- Filters -->
-             <div class="filter-options">
-                 <div class="filter-group pattern-filter">
-                     <label for="filterMode">Filter:</label>
-                     <div class="input-group">
-                         <select id="filterMode">
-                             <option value="Exclude" selected>Exclude</option>
-                             <option value="Include">Include</option>
-                         </select>
-                         <input type="text" id="filterPatterns" placeholder="Patterns (e.g., *.md, build/)">
-                     </div>
-                 </div>
-                 <div class="filter-group size-filter">
-                     <label for="maxSizeSlider">Max Size: <span id="maxSizeValue">500 KB</span></label>
-                     <input type="range" id="maxSizeSlider" min="0" max="102400" step="100" value="500">
-                 </div>
-             </div>
-              <!-- Global Status -->
-              <div id="finalStatusDisplay" class="status-final">
-                    <span id="finalStatus" class="status-text"></span>
-              </div>
-        </div>
     </header>
 
-    <main id="resultsContainer" style="display: none;">
-
-        <!-- Top Row: Summary and Directory Structure -->
-        <div class="results-row">
-            <!-- Summary Card -->
-            <div class="summary-section card">
-                <h2>Summary</h2>
-                <div class="summary-content">
-                    <p><strong>Repository:</strong> <span id="repoName">N/A</span></p>
-                    <p><strong>Files analyzed:</strong> <span id="filesCount">0</span></p>
-                    <!-- <p><strong>Estimated tokens:</strong> <span id="tokenCount">N/A</span></p> -->
-                </div>
-                <div class="summary-actions">
-                    <button id="downloadTxtButton" class="button secondary action-button" disabled>
-                        <span class="icon">💾</span> Download
-                    </button>
-                    <button id="copyAllButton" class="button secondary action-button" disabled>
-                        <span class="icon">📋</span> Copy all
-                    </button>
-                     <span id="downloadStatus" class="status-text"></span>
+    <main>
+        <!-- Control Panel -->
+        <div class="controls-panel card">
+            <!-- Row 1: Input Source -->
+            <div class="control-row">
+                <label class="control-label">Input Source:</label>
+                <div class="radio-group">
+                    <input type="radio" id="modeLocal" name="inputMode" value="local" checked>
+                    <label for="modeLocal" class="radio-label">Local Folder</label>
+                    <input type="radio" id="modeUrl" name="inputMode" value="url">
+                    <label for="modeUrl" class="radio-label">Git URL</label>
                 </div>
             </div>
 
-            <!-- Directory Structure Card -->
-            <div class="structure-section card">
-                <div class="card-header">
-                    <h2>Directory Structure</h2>
-                    <button id="copyStructureButton" class="button tertiary copy-button" disabled>
-                         <span class="icon">📄</span> Copy
-                    </button>
+            <!-- Row 2: Source Specific Inputs -->
+            <div class="control-row source-input-row">
+                <!-- Local Folder Input Section -->
+                <div id="localModeSection" class="input-section">
+                    <label for="folderInput" class="button primary">Select Folder</label>
+                    <input type="file" id="folderInput" webkitdirectory directory multiple style="display: none;">
+                    <span id="localStatus" class="status-text">No folder selected.</span>
                 </div>
-                 <div class="content-area">
-                     <pre id="structureOutput"><code class="language-plaintext"></code></pre>
+
+                <!-- URL Input Section -->
+                <div id="urlModeSection" class="input-section" style="display: none;">
+                    <input type="url" id="urlInput" placeholder="e.g., https://github.com/owner/repository">
+                    <button id="fetchUrlButton" class="button primary">Fetch Repo</button>
+                    <span id="urlStatus" class="status-text">Enter public GitHub URL.</span>
+                </div>
+            </div>
+
+             <!-- Separator -->
+             <hr class="control-separator">
+
+            <!-- Row 3: Filters -->
+            <div class="control-row filter-row">
+                 <label class="control-label filter-label">Filter:</label>
+                 <div class="filter-group pattern-filter">
+                      <select id="filterMode">
+                          <option value="Exclude" selected>Exclude</option>
+                          <option value="Include">Include</option>
+                      </select>
+                      <input type="text" id="filterPatterns" placeholder="Patterns (e.g., *.md, build/)">
+                 </div>
+                 <div class="filter-group size-filter">
+                      <label for="maxSizeSlider">Max Size: <span id="maxSizeValue">500 KB</span></label>
+                      <div class="slider-container">
+                           <input type="range" id="maxSizeSlider" min="0" max="102400" step="100" value="500">
+                      </div>
                  </div>
             </div>
-        </div>
 
-        <!-- Bottom Row: Files Content -->
-        <div class="results-row">
-             <!-- Files Content Card -->
-             <div class="content-section card">
-                <div class="card-header">
-                    <h2>Files Content</h2>
-                    <button id="copyContentButton" class="button tertiary copy-button" disabled>
-                         <span class="icon">📄</span> Copy
-                    </button>
-                 </div>
-                 <p id="contentNotice" class="content-notice" style="display: none;">
-                    (Files content display may be cropped for performance. Use "Download" or "Copy all" for the full ingest.)
-                 </p>
-                 <div class="content-area">
-                     <pre id="contentOutput"><code class="language-plaintext"></code></pre>
+            <!-- Processing Status Area -->
+             <div id="finalStatusDisplay" class="status-final">
+                   <span id="finalStatus" class="status-text"></span>
+             </div>
+
+        </div> <!-- End controls-panel -->
+
+        <!-- Results Area -->
+        <div id="resultsArea" class="results-panel card" style="display: none;">
+             <div class="results-header">
+                 <h2>Ingested Output</h2>
+                 <div class="results-actions">
+                      <button id="copyOutputButton" class="button secondary" disabled>
+                           <span class="icon">📋</span> Copy Output
+                      </button>
+                      <button id="downloadTxtButton" class="button secondary" disabled>
+                           <span class="icon">💾</span> Download (.txt)
+                      </button>
+                      <span id="downloadStatus" class="status-text"></span>
                  </div>
              </div>
+             <pre id="output"><code class="language-plaintext"></code></pre>
         </div>
 
     </main>
