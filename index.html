@@ -8,91 +8,99 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚙️</text></svg>">
 
     <link rel="stylesheet" href="style.css">
-    <!-- Removed Google Fonts for simplicity, add back if desired -->
-
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* Small style to vertically align emoji with title */
+        h1 span.icon {
+            display: inline-block; /* Needed for vertical-align */
+            vertical-align: middle; /* Align emoji nicely with text */
+            margin-right: 10px; /* Space between icon and text */
+            font-size: 0.9em; /* Slightly smaller than h1 */
+        }
+        /* Adjust alignment on smaller screens if h1 wraps */
+         @media (max-width: 450px) {
+             h1 span.icon {
+                 display: block; /* Put icon on its own line above text */
+                 margin: 0 auto 5px auto; /* Center it and add space below */
+                 font-size: 1.2em;
+             }
+             h1 {
+                 display: flex;
+                 flex-direction: column;
+                 align-items: center;
+             }
+         }
+    </style>
 </head>
 <body>
 
     <header>
         <h1><span class="icon">⚙️</span>Codebase Ingest Tool</h1>
+        <p class="subtitle">Select a local folder or enter a public Git repository URL. The tool reads text files, applies filters, and combines the content.</p>
+        <p class="privacy-notice"><strong>🔒 Privacy:</strong> Local folder processing runs entirely in your browser. URL fetching uses public APIs (e.g., GitHub) but no data is stored externally by this tool.</p>
+        <p class="limitation-notice"><strong>⚠️ Limitations:</strong> <code>.gitignore</code>/pattern matching is simplified. URL fetching currently supports **public GitHub repositories** and may be subject to API rate limits.</p>
     </header>
 
     <main>
-        <!-- Control Panel -->
-        <div class="controls-panel card">
-            <!-- Row 1: Input Source -->
-            <div class="control-row">
-                <label class="control-label">Input Source:</label>
-                <div class="radio-group">
-                    <input type="radio" id="modeLocal" name="inputMode" value="local" checked>
-                    <label for="modeLocal" class="radio-label">Local Folder</label>
-                    <input type="radio" id="modeUrl" name="inputMode" value="url">
-                    <label for="modeUrl" class="radio-label">Git URL</label>
-                </div>
-            </div>
-
-            <!-- Row 2: Source Specific Inputs -->
-            <div class="control-row source-input-row">
-                <!-- Local Folder Input Section -->
-                <div id="localModeSection" class="input-section">
-                    <label for="folderInput" class="button primary">Select Folder</label>
-                    <input type="file" id="folderInput" webkitdirectory directory multiple style="display: none;">
-                    <span id="localStatus" class="status-text">No folder selected.</span>
-                </div>
-
-                <!-- URL Input Section -->
-                <div id="urlModeSection" class="input-section" style="display: none;">
-                    <input type="url" id="urlInput" placeholder="e.g., https://github.com/owner/repository">
-                    <button id="fetchUrlButton" class="button primary">Fetch Repo</button>
-                    <span id="urlStatus" class="status-text">Enter public GitHub URL.</span>
-                </div>
-            </div>
-
-             <!-- Separator -->
-             <hr class="control-separator">
-
-            <!-- Row 3: Filters -->
-            <div class="control-row filter-row">
-                 <label class="control-label filter-label">Filter:</label>
-                 <div class="filter-group pattern-filter">
-                      <select id="filterMode">
-                          <option value="Exclude" selected>Exclude</option>
-                          <option value="Include">Include</option>
-                      </select>
-                      <input type="text" id="filterPatterns" placeholder="Patterns (e.g., *.md, build/)">
-                 </div>
-                 <div class="filter-group size-filter">
-                      <label for="maxSizeSlider">Max Size: <span id="maxSizeValue">500 KB</span></label>
-                      <div class="slider-container">
-                           <input type="range" id="maxSizeSlider" min="0" max="102400" step="100" value="500">
-                      </div>
-                 </div>
-            </div>
-
-            <!-- Processing Status Area -->
-             <div id="finalStatusDisplay" class="status-final">
-                   <span id="finalStatus" class="status-text"></span>
+        <div class="input-mode card">
+             <label class="mode-label">Select Input Source:</label>
+             <div class="radio-group">
+                 <input type="radio" id="modeLocal" name="inputMode" value="local" checked>
+                 <label for="modeLocal">Local Folder</label>
+                 <input type="radio" id="modeUrl" name="inputMode" value="url">
+                 <label for="modeUrl">Git Repository URL</label>
              </div>
-
-        </div> <!-- End controls-panel -->
-
-        <!-- Results Area -->
-        <div id="resultsArea" class="results-panel card" style="display: none;">
-             <div class="results-header">
-                 <h2>Ingested Output</h2>
-                 <div class="results-actions">
-                      <button id="copyOutputButton" class="button secondary" disabled>
-                           <span class="icon">📋</span> Copy Output
-                      </button>
-                      <button id="downloadTxtButton" class="button secondary" disabled>
-                           <span class="icon">💾</span> Download (.txt)
-                      </button>
-                      <span id="downloadStatus" class="status-text"></span>
-                 </div>
-             </div>
-             <pre id="output"><code class="language-plaintext"></code></pre>
         </div>
 
+        <!-- Local Folder Input Section -->
+        <div id="localModeSection">
+            <div class="controls card">
+                <label for="folderInput" class="button primary">Select Code Folder</label>
+                <input type="file" id="folderInput" webkitdirectory directory style="display: none;">
+                <span id="localStatus" class="status-text">No folder selected.</span>
+            </div>
+        </div>
+
+        <!-- URL Input Section -->
+        <div id="urlModeSection" style="display: none;">
+             <div class="controls card">
+                 <label for="urlInput" class="url-label">GitHub URL:</label>
+                 <input type="url" id="urlInput" placeholder="e.g., https://github.com/owner/repository">
+                 <button id="fetchUrlButton" class="button primary">Fetch Repository</button>
+                 <span id="urlStatus" class="status-text">Enter a public GitHub repository URL.</span>
+             </div>
+        </div>
+
+
+        <div class="filter-options card">
+            <div class="filter-group pattern-filter">
+                <label for="filterMode">Filter Action:</label>
+                <div class="input-group">
+                    <select id="filterMode">
+                        <option value="Exclude" selected>Exclude</option>
+                        <option value="Include">Include</option>
+                    </select>
+                    <input type="text" id="filterPatterns" placeholder="e.g., *.md, build/, test* (comma-separated)">
+                </div>
+            </div>
+
+            <div class="filter-group size-filter">
+                <label for="maxSizeSlider">Max File Size: <span id="maxSizeValue">500 KB</span></label>
+                <!-- Max 100MB = 102400 KB -->
+                <input type="range" id="maxSizeSlider" min="0" max="102400" step="100" value="500">
+            </div>
+        </div>
+
+        <div class="output-container card">
+             <label for="output" class="output-label">Combined Output:</label>
+            <textarea id="output" rows="25" placeholder="Combined code output will appear here..." readonly></textarea>
+             <div class="output-footer">
+                <span id="finalStatus" class="status-text"></span>
+                 <button id="copyButton" class="button secondary" disabled>Copy to Clipboard</button>
+             </div>
+        </div>
     </main>
 
     <script src="script.js"></script>
