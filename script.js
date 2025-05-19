@@ -1,4 +1,114 @@
 document.addEventListener('DOMContentLoaded', () => {
+    function injectThemeStyles() {
+        const styleElement = document.createElement('style');
+        styleElement.id = 'injected-theme-styles'; // Good for identification
+        styleElement.innerHTML = `
+/* Injected Styles */
+:root {
+    --color-background: #FFFFFF;
+    --color-text: #212529;
+    --color-primary: #007ACC;
+    --color-primary-dark: #005FA3;
+    --color-secondary: #5A6268;
+    --color-secondary-dark: #495057;
+    --color-success: #28A745;
+    --color-success-dark: #218838;
+    --color-danger: #DC3545;
+    --color-warning: #FFC107;
+    --color-info: #17A2B8;
+    --color-light: #F0F0F0; /* Lighter Gray for code bg, slider track */
+    --color-dark: #1A1A1A; /* For h1 text, etc. */
+    --color-border: #DEE2E6;
+    --color-input-bg: #FFFFFF;
+    --color-input-focus-bg: #E6F2FF;
+    --color-card-bg: #F8F9FA;
+    /* Preserving existing font and layout vars by not redefining them here,
+       assuming they will be picked up from style.css or default browser styles.
+       If they are missing, they might need to be added. */
+    --font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --border-radius: 0.375rem;
+    --box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+    --box-shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.1);
+    --code-text-color: #c7254e;
+}
+
+body[data-theme="dark"] {
+    --color-background: #1A1A1A;
+    --color-text: #E0E0E0;
+    --color-primary: #008AE6;
+    --color-primary-dark: #006BB3;
+    --color-secondary: #ADB5BD;
+    --color-secondary-dark: #8A9197;
+    --color-success: #30C050;
+    --color-success-dark: #28A745;
+    --color-danger: #E84555;
+    --color-warning: #FFCA2C;
+    --color-info: #20BACF;
+    --color-light: #3A3A3A; 
+    --color-dark: #F0F0F0; 
+    --color-border: #495057;
+    --color-input-bg: #2C2C2C;
+    --color-input-focus-bg: #3E4E60;
+    --color-card-bg: #2C2C2C;
+    --box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+    --box-shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.25);
+    --code-text-color: #ef708e; 
+}
+
+/* Theme Toggle Button Specifics */
+.theme-toggle {
+    background-color: var(--color-secondary);
+    border-color: var(--color-secondary);
+    color: #fff; 
+    padding: 0.5rem 1rem; /* Ensure padding is similar to other buttons */
+    border-radius: var(--border-radius); /* Use variable */
+    font-size: 1rem; /* Ensure font size is similar */
+    font-weight: 500; /* Ensure font weight is similar */
+    cursor: pointer;
+    transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+}
+
+.theme-toggle:hover {
+    background-color: var(--color-secondary-dark);
+    border-color: var(--color-secondary-dark);
+    color: #fff;
+}
+        `;
+        document.head.appendChild(styleElement);
+    }
+
+    injectThemeStyles(); // Call the function
+
+    // --- Theme Handling ---
+    const themeToggleButton = document.getElementById('theme-toggle-button');
+    const THEME_KEY = 'themePreference'; // For localStorage
+
+    function applyTheme(theme) {
+        document.body.dataset.theme = theme;
+        if (themeToggleButton) {
+            themeToggleButton.textContent = theme === 'dark' ? 'Set Light Theme' : 'Set Dark Theme';
+        }
+    }
+
+    function toggleTheme() {
+        const currentTheme = document.body.dataset.theme || 'light'; // Default to light
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        applyTheme(newTheme);
+        localStorage.setItem(THEME_KEY, newTheme);
+    }
+
+    if (themeToggleButton) {
+        themeToggleButton.addEventListener('click', toggleTheme);
+    }
+
+    // Load saved theme or default
+    const savedTheme = localStorage.getItem(THEME_KEY);
+    if (savedTheme) {
+        applyTheme(savedTheme);
+    } else {
+        applyTheme('light'); // Default to light
+    }
+
     // --- UI Elements ---
     const modeLocalRadio = document.getElementById('modeLocal');
     const modeUrlRadio = document.getElementById('modeUrl');
