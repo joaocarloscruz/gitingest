@@ -55,23 +55,125 @@ body[data-theme="dark"] {
     --code-text-color: #ef708e; 
 }
 
-/* Theme Toggle Button Specifics */
+header {
+    display: flex;
+    flex-direction: row; /* Align items in a row */
+    justify-content: space-between; /* Push title and toggle to opposite ends */
+    align-items: center; /* Vertically align items in the center */
+    margin-bottom: 30px; /* Keep existing margin */
+    padding-bottom: 20px; /* Keep existing padding */
+    border-bottom: 1px solid var(--color-border); /* Keep existing border */
+}
+
+header h1 {
+    margin-bottom: 0; /* Remove default margin from h1 if it affects alignment */
+    text-align: left; /* Ensure title text is aligned left */
+}
+
+h1 span.icon { /* Preserved from original styles */
+    display: inline-block; 
+    vertical-align: middle; 
+    margin-right: 10px; 
+    font-size: 0.9em; 
+}
+
 .theme-toggle {
-    background-color: var(--color-secondary);
-    border-color: var(--color-secondary);
-    color: #fff; 
-    padding: 0.5rem 1rem; /* Ensure padding is similar to other buttons */
-    border-radius: var(--border-radius); /* Use variable */
-    font-size: 1rem; /* Ensure font size is similar */
-    font-weight: 500; /* Ensure font weight is similar */
+    background-color: var(--color-secondary); /* Base background */
+    border: 1px solid var(--color-secondary-dark);
+    color: #fff; /* Icon/text color */
+    padding: 0.375rem 0.75rem; /* Adjust padding for a more compact look if desired */
+    border-radius: 20px; /* Rounded ends for slider appearance */
+    font-size: 1.2rem; /* Make icons a bit larger */
+    line-height: 1; /* Ensure icon is centered vertically */
     cursor: pointer;
-    transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+    min-width: 50px; /* Ensure it has some width for the icon */
+    text-align: center;
+    margin-left: 0; 
 }
 
 .theme-toggle:hover {
     background-color: var(--color-secondary-dark);
-    border-color: var(--color-secondary-dark);
+    border-color: var(--color-primary); /* Highlight on hover */
+}
+
+body[data-theme='light'] .theme-toggle {
+    background-color: var(--color-warning); /* Sunny yellow */
+    border-color: var(--color-warning);
+    color: var(--color-dark); /* Dark icon on light yellow */
+}
+body[data-theme='light'] .theme-toggle:hover {
+    background-color: #ffda60; /* Lighter yellow for hover */
+}
+
+body[data-theme='dark'] .theme-toggle {
+    background-color: var(--color-primary); /* Cool blue for night */
+    border-color: var(--color-primary);
+    color: #fff; /* White icon on blue */
+}
+body[data-theme='dark'] .theme-toggle:hover {
+    background-color: var(--color-primary-dark);
+}
+
+/* General button styling from original style.css (ensure it's present or add if missing) */
+.button {
+    display: inline-block;
+    font-weight: 500;
+    text-align: center;
+    vertical-align: middle;
+    cursor: pointer;
+    user-select: none;
+    border: 1px solid transparent;
+    padding: 0.5rem 1rem;
+    font-size: 1rem;
+    line-height: 1.5;
+    border-radius: var(--border-radius);
+    transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+.button.primary {
+    background-color: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #FFFFFF;
+}
+.button.primary:hover {
+    background-color: var(--color-primary-dark);
+    border-color: var(--color-primary-dark);
+    color: #FFFFFF;
+}
+
+/* Modify .button.secondary to use --color-info */
+.button.secondary { 
+    background-color: var(--color-info);
+    border-color: var(--color-info);
     color: #fff;
+}
+.button.secondary:hover:not(:disabled) {
+    background-color: var(--color-info); 
+    opacity: 0.85; 
+    border-color: var(--color-info); 
+}
+
+/* Specific style for Copy button to use --color-success */
+#copyButton.button.secondary {
+     background-color: var(--color-success);
+     border-color: var(--color-success);
+     color: #fff; /* Ensure text is white */
+}
+#copyButton.button.secondary:hover:not(:disabled) {
+     background-color: var(--color-success-dark);
+     border-color: var(--color-success-dark);
+     opacity: 1; /* Reset opacity */
+}
+
+.output-footer {
+    display: flex;
+    justify-content: space-between; 
+    align-items: center;
+    margin-top: 5px; /* Keep existing margin-top */
+    gap: 10px; /* Use gap for spacing */
+}
+.output-footer button { 
+    margin-left: 0; /* Remove individual margins if gap is used */
 }
         `;
         document.head.appendChild(styleElement);
