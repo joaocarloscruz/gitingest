@@ -188,7 +188,7 @@ body[data-theme='dark'] .theme-toggle:hover {
     function applyTheme(theme) {
         document.body.dataset.theme = theme;
         if (themeToggleButton) {
-            themeToggleButton.textContent = theme === 'dark' ? 'Set Light Theme' : 'Set Dark Theme';
+            themeToggleButton.innerHTML = theme === 'dark' ? '☀️' : '🌙';
         }
     }
 
@@ -223,6 +223,7 @@ body[data-theme='dark'] .theme-toggle:hover {
     const urlStatusDisplay = document.getElementById('urlStatus');
     const outputArea = document.getElementById('output');
     const copyButton = document.getElementById('copyButton');
+    const downloadButton = document.getElementById('downloadButton');
     const filterModeSelect = document.getElementById('filterMode');
     const filterPatternsInput = document.getElementById('filterPatterns');
     const maxSizeSlider = document.getElementById('maxSizeSlider');
@@ -275,6 +276,9 @@ body[data-theme='dark'] .theme-toggle:hover {
     folderInput.addEventListener('change', handleFolderSelect);
     fetchUrlButton.addEventListener('click', handleUrlFetch); // New handler for URL fetch
     copyButton.addEventListener('click', copyOutputToClipboard);
+    if (downloadButton) {
+        downloadButton.addEventListener('click', downloadOutput);
+    }
     maxSizeSlider.addEventListener('input', updateMaxSize);
     filterModeSelect.addEventListener('change', () => { currentFilterMode = filterModeSelect.value; });
 
