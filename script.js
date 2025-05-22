@@ -1,4 +1,40 @@
 document.addEventListener('DOMContentLoaded', () => {
+
+    function downloadOutput() {
+        const textContent = outputArea.value; // outputArea should be defined globally in the script
+        if (!textContent) {
+            // Assuming setStatus and finalStatusDisplay are available globally or handled if not
+            if (typeof setStatus === 'function') {
+                setStatus('❌ Nothing to download. Output is empty.', true, 'final');
+            } else {
+                console.warn('setStatus function not available for downloadOutput.');
+                alert('Output is empty. Nothing to download.');
+            }
+            return;
+        }
+
+        const filename = "codebase_output.txt";
+        // Use Blob for creating the download link
+        const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a); // Append to body to make it clickable
+        a.click();
+
+        // Cleanup
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        if (typeof setStatus === 'function') {
+            setStatus('✅ Output download initiated.', false, 'final');
+        } else {
+            console.info('Output download initiated.');
+        }
+    }
+
     function injectThemeStyles() {
         const styleElement = document.createElement('style');
         styleElement.id = 'injected-theme-styles'; // Good for identification
@@ -78,41 +114,37 @@ h1 span.icon { /* Preserved from original styles */
 }
 
 .theme-toggle {
-    background-color: var(--color-secondary); /* Base background */
-    border: 1px solid var(--color-secondary-dark);
-    color: #fff; /* Icon/text color */
-    padding: 0.375rem 0.75rem; /* Adjust padding for a more compact look if desired */
-    border-radius: 20px; /* Rounded ends for slider appearance */
-    font-size: 1.2rem; /* Make icons a bit larger */
-    line-height: 1; /* Ensure icon is centered vertically */
+    background-color: transparent;
+    border: none;
+    padding: 0.25rem; /* Minimal padding for touch/click area */
+    border-radius: var(--border-radius); /* Keep some rounding for consistency if desired, or set to 0 */
+    font-size: 1.5rem; /* Larger emoji */
+    line-height: 1; 
     cursor: pointer;
-    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
-    min-width: 50px; /* Ensure it has some width for the icon */
+    transition: opacity 0.2s ease; /* Transition for hover effect */
+    min-width: auto; /* Allow button to size to content */
     text-align: center;
     margin-left: 0; 
+    /* color property removed to let emoji native colors render */
 }
 
 .theme-toggle:hover {
-    background-color: var(--color-secondary-dark);
-    border-color: var(--color-primary); /* Highlight on hover */
+    opacity: 0.7; /* Subtle hover effect */
+    /* Removed background-color and border-color changes */
 }
 
 body[data-theme='light'] .theme-toggle {
-    background-color: var(--color-warning); /* Sunny yellow */
-    border-color: var(--color-warning);
-    color: var(--color-dark); /* Dark icon on light yellow */
+    /* Removed background-color, border-color, and color properties */
 }
 body[data-theme='light'] .theme-toggle:hover {
-    background-color: #ffda60; /* Lighter yellow for hover */
+    /* Removed background-color; hover opacity handled by .theme-toggle:hover */
 }
 
 body[data-theme='dark'] .theme-toggle {
-    background-color: var(--color-primary); /* Cool blue for night */
-    border-color: var(--color-primary);
-    color: #fff; /* White icon on blue */
+    /* Removed background-color, border-color, and color properties */
 }
 body[data-theme='dark'] .theme-toggle:hover {
-    background-color: var(--color-primary-dark);
+    /* Removed background-color; hover opacity handled by .theme-toggle:hover */
 }
 
 /* General button styling from original style.css (ensure it's present or add if missing) */
@@ -174,6 +206,13 @@ body[data-theme='dark'] .theme-toggle:hover {
 }
 .output-footer button { 
     margin-left: 0; /* Remove individual margins if gap is used */
+}
+
+/* Theme-aware styles for the output textarea */
+#output {
+    background-color: var(--color-input-bg);
+    color: var(--color-text);
+    border-color: var(--color-border); /* Ensure border also adapts */
 }
         `;
         document.head.appendChild(styleElement);
